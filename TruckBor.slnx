@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="TruckBor.API/TruckBor.API.csproj" />
+  <Project Path="TruckBor.Application/TruckBor.Application.csproj" />
+  <Project Path="TruckBor.Domain/TruckBor.Domain.csproj" />
+  <Project Path="TruckBor.Infrastructure/TruckBor.Infrastructure.csproj" />
+  <Project Path="TruckBor.Worker/TruckBor.Worker.csproj" />
+</Solution>
