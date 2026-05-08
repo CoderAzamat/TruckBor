@@ -6,7 +6,6 @@ using Telegram.Bot;
 using TruckBor.Application.Interfaces;
 using TruckBor.Infrastructure.Data;
 using TruckBor.Infrastructure.Services;
-using TruckBor.Infrastructure.Telegram;
 using TruckBor.Infrastructure.Telegram.Handlers;
 
 namespace TruckBor.Infrastructure;
@@ -43,10 +42,6 @@ public static class DependencyInjection
 
         // Bot Handler
         services.AddScoped<BotUpdateHandler>();
-
-        // Polling mode (when Bot:UsePolling = true)
-        if (configuration.GetValue<bool>("Bot:UsePolling"))
-            services.AddHostedService<BotPollingService>();
 
         return services;
     }

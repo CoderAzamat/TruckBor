@@ -50,6 +50,13 @@ public class BotPollingService : BackgroundService
             receiverOptions: options,
             cancellationToken: ct);
 
-        await Task.Delay(Timeout.Infinite, ct);
+        try
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Bot polling stopped");
+        }
     }
 }
