@@ -1,4 +1,7 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using TruckBor.API.Extensions;
 using TruckBor.API.Middleware;
@@ -29,6 +32,25 @@ builder.Services.AddControllers()
         opts.JsonSerializerOptions.NumberHandling =
             System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString;
     });
+
+// ── JWT Auth ──────────────────────────────────────────────
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(opt =>
+    {
+        opt.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer           = true,
+            ValidateAudience         = true,
+            ValidateLifetime         = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer              = builder.Configuration["Jwt:Issuer"],
+            ValidAudience            = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey         = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!))
+        };
+    });
+builder.Services.AddAuthorization();
 
 // ── CORS ──────────────────────────────────────────────────
 builder.Services.AddCors(opt => opt.AddPolicy("default", b => b
@@ -85,6 +107,13 @@ if (app.Environment.IsDevelopment())
 app.UseSerilogRequestLogging();
 app.UseCors("default");
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+
+// ── Static files (Mini App) ───────────────────────────────
+app.UseDefaultFiles(new DefaultFilesOptions { RequestPath = "/miniapp" });
+app.UseStaticFiles();
+
 app.MapControllers();
 
 app.MapHealthChecks("/health");

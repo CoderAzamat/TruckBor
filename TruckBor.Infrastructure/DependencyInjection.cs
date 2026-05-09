@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IPostingService, PostingService>();
+        services.AddSingleton<IAiPostService, AiPostService>();
 
         // Telegram Bot
         services.AddSingleton<ITelegramBotClient>(_ =>

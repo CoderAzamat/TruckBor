@@ -407,6 +407,143 @@ public class LocalizationService : ILocalizationService
             [Language.English]    = "⚙️ <b>Settings</b>\n\n🌐 Language: {0}",
             [Language.Turkish]    = "⚙️ <b>Ayarlar</b>\n\n🌐 Dil: {0}",
         },
+        // ── Post type names ────────────────────────────────────────────────
+        ["post_type_cargo"] = new()
+        {
+            [Language.UzLatin]    = "Yuk e'loni",
+            [Language.UzCyrillic] = "Юк эълони",
+            [Language.Russian]    = "Грузовое объявление",
+            [Language.English]    = "Cargo ad",
+            [Language.Turkish]    = "Yük ilanı",
+        },
+        ["post_type_transport"] = new()
+        {
+            [Language.UzLatin]    = "Transport e'loni",
+            [Language.UzCyrillic] = "Транспорт эълони",
+            [Language.Russian]    = "Транспортное объявление",
+            [Language.English]    = "Transport ad",
+            [Language.Turkish]    = "Taşıt ilanı",
+        },
+        ["post_type_dogruz"] = new()
+        {
+            [Language.UzLatin]    = "Dogruz (qo'sh yuk)",
+            [Language.UzCyrillic] = "Доғруз (қўш юк)",
+            [Language.Russian]    = "Догруз (попутка)",
+            [Language.English]    = "Extra cargo",
+            [Language.Turkish]    = "Yol arkadaşı",
+        },
+
+        // ── Transport flow prompts ────────────────────────────────────────
+        ["transport_from_prompt"] = new()
+        {
+            [Language.UzLatin]    = "📍 Qayerdan (shahar kiriting):",
+            [Language.UzCyrillic] = "📍 Қаердан (шаҳар киритинг):",
+            [Language.Russian]    = "📍 Откуда (введите город):",
+            [Language.English]    = "📍 From where (enter city):",
+            [Language.Turkish]    = "📍 Nereden (şehir girin):",
+        },
+        ["transport_to_prompt"] = new()
+        {
+            [Language.UzLatin]    = "📍 Qayerga (manzil kiriting):",
+            [Language.UzCyrillic] = "📍 Қаерга (манзил киритинг):",
+            [Language.Russian]    = "📍 Куда (введите адрес):",
+            [Language.English]    = "📍 Where to (enter destination):",
+            [Language.Turkish]    = "📍 Nereye (adres girin):",
+        },
+        ["transport_vehicle_prompt"] = new()
+        {
+            [Language.UzLatin]    = "🚗 Transport turini tanlang:",
+            [Language.UzCyrillic] = "🚗 Транспорт турини танланг:",
+            [Language.Russian]    = "🚗 Выберите тип транспорта:",
+            [Language.English]    = "🚗 Choose vehicle type:",
+            [Language.Turkish]    = "🚗 Araç türünü seçin:",
+        },
+        ["transport_capacity_prompt"] = new()
+        {
+            [Language.UzLatin]    = "⚖️ Yuk ko'tarish hajmini kiriting (masalan: 20 tonna):",
+            [Language.UzCyrillic] = "⚖️ Юк кўтариш ҳажмини киритинг (масалан: 20 тонна):",
+            [Language.Russian]    = "⚖️ Введите грузоподъёмность (например: 20 тонн):",
+            [Language.English]    = "⚖️ Enter load capacity (e.g., 20 tons):",
+            [Language.Turkish]    = "⚖️ Yük kapasitesini girin (örn: 20 ton):",
+        },
+        ["transport_price_prompt"] = new()
+        {
+            [Language.UzLatin]    = "💰 Narxini kiriting (yoki 'Kelishiladi'):",
+            [Language.UzCyrillic] = "💰 Нархини киритинг (ёки 'Келишилади'):",
+            [Language.Russian]    = "💰 Введите цену (или 'Договорная'):",
+            [Language.English]    = "💰 Enter price (or 'Negotiable'):",
+            [Language.Turkish]    = "💰 Fiyatı girin (veya 'Pazarlıklı'):",
+        },
+
+        // ── Dogruz flow prompts ───────────────────────────────────────────
+        ["dogruz_from_prompt"] = new()
+        {
+            [Language.UzLatin]    = "📍 Qayerdan (shahar kiriting):",
+            [Language.UzCyrillic] = "📍 Қаердан (шаҳар киритинг):",
+            [Language.Russian]    = "📍 Откуда (введите город):",
+            [Language.English]    = "📍 From where (enter city):",
+            [Language.Turkish]    = "📍 Nereden (şehir girin):",
+        },
+        ["dogruz_to_prompt"] = new()
+        {
+            [Language.UzLatin]    = "📍 Qayerga (manzil kiriting):",
+            [Language.UzCyrillic] = "📍 Қаерга (манзил киритинг):",
+            [Language.Russian]    = "📍 Куда (введите адрес):",
+            [Language.English]    = "📍 Where to (enter destination):",
+            [Language.Turkish]    = "📍 Nereye (adres girin):",
+        },
+        ["dogruz_capacity_prompt"] = new()
+        {
+            [Language.UzLatin]    = "📐 Bo'sh joy hajmi (masalan: 5 tonna):",
+            [Language.UzCyrillic] = "📐 Бўш жой ҳажми (масалан: 5 тонна):",
+            [Language.Russian]    = "📐 Свободное место (например: 5 тонн):",
+            [Language.English]    = "📐 Available space (e.g., 5 tons):",
+            [Language.Turkish]    = "📐 Boş alan (örn: 5 ton):",
+        },
+        ["dogruz_price_prompt"] = new()
+        {
+            [Language.UzLatin]    = "💰 Narxini kiriting (yoki 'Kelishiladi'):",
+            [Language.UzCyrillic] = "💰 Нархини киритинг (ёки 'Келишилади'):",
+            [Language.Russian]    = "💰 Введите цену (или 'Договорная'):",
+            [Language.English]    = "💰 Enter price (or 'Negotiable'):",
+            [Language.Turkish]    = "💰 Fiyatı girin (veya 'Pazarlıklı'):",
+        },
+
+        // ── Search prompts ────────────────────────────────────────────────
+        ["search_from_prompt"] = new()
+        {
+            [Language.UzLatin]    = "🔍 Qayerdan (shahar kiriting yoki bo'sh qoldiring):",
+            [Language.UzCyrillic] = "🔍 Қаердан (шаҳар киритинг ёки бўш қолдиринг):",
+            [Language.Russian]    = "🔍 Откуда (введите город или оставьте пустым):",
+            [Language.English]    = "🔍 From where (enter city or leave empty):",
+            [Language.Turkish]    = "🔍 Nereden (şehir girin veya boş bırakın):",
+        },
+        ["search_to_prompt"] = new()
+        {
+            [Language.UzLatin]    = "🔍 Qayerga (manzil kiriting yoki bo'sh qoldiring):",
+            [Language.UzCyrillic] = "🔍 Қаерга (манзил киритинг ёки бўш қолдиринг):",
+            [Language.Russian]    = "🔍 Куда (введите город или оставьте пустым):",
+            [Language.English]    = "🔍 Where to (enter city or leave empty):",
+            [Language.Turkish]    = "🔍 Nereye (şehir girin veya boş bırakın):",
+        },
+
+        // ── AI flow ───────────────────────────────────────────────────────
+        ["ai_parse_failed"] = new()
+        {
+            [Language.UzLatin]    = "🤖 AI matnni tahlil qila olmadi.\n\n📝 Qo'lda kiritamiz:",
+            [Language.UzCyrillic] = "🤖 AI матнни таҳлил қила олмади.\n\n📝 Қўлда киритамиз:",
+            [Language.Russian]    = "🤖 AI не смог распознать текст.\n\n📝 Заполним вручную:",
+            [Language.English]    = "🤖 AI couldn't parse the text.\n\n📝 Let's fill in manually:",
+            [Language.Turkish]    = "🤖 AI metni çözümleyemedi.\n\n📝 Manuel dolduralım:",
+        },
+        ["matching_header"] = new()
+        {
+            [Language.UzLatin]    = "🎯 <b>Sizga mos e'lonlar:</b>",
+            [Language.UzCyrillic] = "🎯 <b>Сизга мос эълонлар:</b>",
+            [Language.Russian]    = "🎯 <b>Подходящие объявления:</b>",
+            [Language.English]    = "🎯 <b>Matching ads:</b>",
+            [Language.Turkish]    = "🎯 <b>Uygun ilanlar:</b>",
+        },
         ["settings_change_lang"] = new()
         {
             [Language.UzLatin]    = "🌐 Tilni o'zgartirish",

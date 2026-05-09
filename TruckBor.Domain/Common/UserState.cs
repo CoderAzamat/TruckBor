@@ -57,6 +57,10 @@ public enum UserState
     WaitingTariffPrice,
     WaitingTariffDays,
 
+    // AI post flow
+    WaitingAiPostText,
+    WaitingAiPostConfirm,
+
     // Accounts
     WaitingAccountPhone,
     WaitingAccountCode,

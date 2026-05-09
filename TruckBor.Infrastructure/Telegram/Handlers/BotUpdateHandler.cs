@@ -22,6 +22,7 @@ public class BotUpdateHandler
     private readonly IAppDbContext      _db;
     private readonly ICacheService      _cache;
     private readonly IPostingService    _posting;
+    private readonly IAiPostService     _ai;
     private readonly IConfiguration    _config;
     private readonly ILogger<BotUpdateHandler> _logger;
     private readonly long[]             _adminIds;
@@ -29,11 +30,11 @@ public class BotUpdateHandler
     public BotUpdateHandler(
         ITelegramBotClient bot, ITelegramService tg, IUserStateService state,
         ILocalizationService loc, IAppDbContext db, ICacheService cache,
-        IPostingService posting, IConfiguration config,
+        IPostingService posting, IAiPostService ai, IConfiguration config,
         ILogger<BotUpdateHandler> logger)
     {
         _bot = bot; _tg = tg; _state = state; _loc = loc;
-        _db = db; _cache = cache; _posting = posting;
+        _db = db; _cache = cache; _posting = posting; _ai = ai;
         _config = config; _logger = logger;
         _adminIds = config.GetSection("Bot:AdminIds").Get<long[]>() ?? Array.Empty<long>();
     }
@@ -401,6 +402,12 @@ public class BotUpdateHandler
             case UserState.WaitingDogruzPhone:
                 await HandlePostCreationAsync(tgId, chatId, msg, user, PostType.Dogruz, ct); break;
 
+            // ── AI Post flow ───────────────────────────────────────────
+            case UserState.WaitingAiPostText:
+                await HandleAiPostTextAsync(tgId, chatId, text, user, ct); break;
+            case UserState.WaitingAiPostConfirm:
+                await HandleAiPostConfirmAsync(tgId, chatId, text, msg, user, ct); break;
+
             // ── Account ─────────────────────────────────────────────────
             case UserState.WaitingAccountPhone:
                 await HandleAccountPhoneAsync(tgId, chatId, msg, user, ct); break;
@@ -462,6 +469,7 @@ public class BotUpdateHandler
 
         // Show matching ads immediately
         await ShowMatchingAdsAsync(chatId, post, user, ct);
+        _ = Task.Run(() => NotifyMatchingUsersAsync(post, user, CancellationToken.None));
     }
 
     // ═══ AUTO-MATCHING ═══════════════════════════════════════════════════
@@ -497,6 +505,217 @@ public class BotUpdateHandler
         }
     }
 
+    // ═══ AI POST FLOW ════════════════════════════════════════════════════
+    private async Task HandleFreeTextPostAsync(long tgId, long chatId,
+        string text, Domain.Entities.User user, CancellationToken ct)
+    {
+        var hasSub = await HasActiveSub(user.Id, ct);
+        if (!hasSub)
+        {
+            await _tg.SendMessageAsync(chatId,
+                _loc.Get("no_subscription_for_post", user.Language),
+                await GetTariffKeyboard(ct), ct);
+            return;
+        }
+
+        await _tg.SendMessageAsync(chatId,
+            "🤖 <b>AI tahlil qilmoqda...</b>\n⏳ Iltimos, kuting...", ct: ct);
+
+        var result = await _ai.ExtractPostFromTextAsync(text, ct);
+
+        if (!result.IsSuccessful || (string.IsNullOrEmpty(result.FromCity) && string.IsNullOrEmpty(result.ToCity)))
+        {
+            await _tg.SendMessageAsync(chatId,
+                _loc.Get("ai_parse_failed", user.Language),
+                KB.CancelMenu(user.Language), ct);
+
+            var (state, promptKey) = (UserState.WaitingPostFrom, "post_from_prompt");
+            await _state.SetStateAsync(tgId, state, null, ct);
+            await _tg.SendMessageAsync(chatId,
+                $"📦 <b>{_loc.Get("post_type_cargo", user.Language)}</b>\n\n{_loc.Get(promptKey, user.Language)}",
+                KB.CancelMenu(user.Language), ct);
+            return;
+        }
+
+        var draft = new PostDraft
+        {
+            Type = result.PostType,
+            From = result.FromCity ?? "",
+            To = result.ToCity ?? "",
+            CargoType = result.CargoType,
+            Weight = result.Weight,
+            VehicleType = result.VehicleType,
+            Price = result.Price,
+            Phone = result.ContactPhone ?? user.PhoneNumber ?? "",
+        };
+
+        await _state.SetStateAsync(tgId, UserState.WaitingAiPostConfirm, draft, ct);
+
+        var icon = draft.Type switch { PostType.Transport => "🚛", PostType.Dogruz => "📮", _ => "📦" };
+        var typeName = draft.Type switch
+        {
+            PostType.Transport => "Transport",
+            PostType.Dogruz => "Dogruz",
+            _ => "Yuk"
+        };
+
+        var preview =
+            $"🤖 <b>AI tahlil natijasi:</b>\n\n" +
+            $"━━━━━━━━━━━━━━━━━━━━━━\n" +
+            $"{icon} <b>Tur:</b> {typeName}\n" +
+            $"📍 <b>Qayerdan:</b> {draft.From}\n" +
+            $"📍 <b>Qayerga:</b> {draft.To}\n" +
+            (!string.IsNullOrEmpty(draft.CargoType) ? $"🏷 <b>Yuk:</b> {draft.CargoType}\n" : "") +
+            (!string.IsNullOrEmpty(draft.Weight) ? $"⚖️ <b>Og'irligi:</b> {draft.Weight}\n" : "") +
+            (!string.IsNullOrEmpty(draft.VehicleType) ? $"🚗 <b>Transport:</b> {draft.VehicleType}\n" : "") +
+            (!string.IsNullOrEmpty(draft.Price) ? $"💰 <b>Narx:</b> {draft.Price}\n" : "") +
+            $"📞 <b>Telefon:</b> {draft.Phone}\n" +
+            $"━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+            "✅ <b>Tasdiqlaysizmi?</b>";
+
+        var kb = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("✅ Ha, joylash", "aipost:confirm"),
+                InlineKeyboardButton.WithCallbackData("❌ Yo'q", "aipost:cancel")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("✏️ Qo'lda tahrirlash", "aipost:manual")
+            }
+        });
+
+        await _tg.SendMessageAsync(chatId, preview, kb, ct);
+    }
+
+    private async Task HandleAiPostTextAsync(long tgId, long chatId,
+        string text, Domain.Entities.User user, CancellationToken ct)
+    {
+        await HandleFreeTextPostAsync(tgId, chatId, text, user, ct);
+    }
+
+    private async Task HandleAiPostConfirmAsync(long tgId, long chatId,
+        string text, Message msg, Domain.Entities.User user, CancellationToken ct)
+    {
+        var phone = msg.Contact?.PhoneNumber ?? text;
+        if (!phone.StartsWith("+")) phone = "+" + phone;
+
+        var draft = await _state.GetStateDataAsync<PostDraft>(tgId, ct) ?? new PostDraft();
+        draft.Phone = phone;
+
+        await _state.ClearStateAsync(tgId, ct);
+        await CreatePostFromDraftAsync(tgId, chatId, draft, user, ct);
+    }
+
+    private async Task CreatePostFromDraftAsync(long tgId, long chatId,
+        PostDraft draft, Domain.Entities.User user, CancellationToken ct)
+    {
+        var hasSub = await HasActiveSub(user.Id, ct);
+        var post = new Domain.Entities.Post
+        {
+            UserId = user.Id,
+            PostType = draft.Type,
+            FromCity = draft.From,
+            ToCity = draft.To,
+            CargoType = draft.CargoType,
+            Weight = draft.Weight,
+            VehicleType = draft.VehicleType,
+            Price = draft.Price,
+            ContactPhone = draft.Phone ?? user.PhoneNumber ?? "",
+            PostedBy = user.Role,
+            Status = PostStatus.Active,
+            IsVerified = hasSub,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+        };
+
+        _db.Posts.Add(post);
+        user.TotalPosts++;
+        await _db.SaveChangesAsync(ct);
+
+        await _tg.SendMessageAsync(chatId,
+            _loc.Get("post_accepted", user.Language),
+            KB.MainMenu(user.Language), ct);
+
+        _ = Task.Run(() => _posting.PostToGroupsAsync(post.Id, user.Id, CancellationToken.None));
+        await ShowMatchingAdsAsync(chatId, post, user, ct);
+        _ = Task.Run(() => NotifyMatchingUsersAsync(post, user, CancellationToken.None));
+    }
+
+    // ═══ AUTO-MATCHING NOTIFICATIONS ═════════════════════════════════════
+    private async Task NotifyMatchingUsersAsync(Domain.Entities.Post newPost,
+        Domain.Entities.User poster, CancellationToken ct)
+    {
+        try
+        {
+            var searchType = newPost.PostType == PostType.Cargo ? PostType.Transport : PostType.Cargo;
+
+            var matchingPosts = await _db.Posts
+                .Include(x => x.User)
+                .Where(x => x.Status == PostStatus.Active &&
+                    x.ExpiresAt > DateTime.UtcNow &&
+                    x.UserId != newPost.UserId &&
+                    x.PostType == searchType &&
+                    (x.FromCity.Contains(newPost.FromCity) || newPost.FromCity.Contains(x.FromCity)) &&
+                    (x.ToCity.Contains(newPost.ToCity) || newPost.ToCity.Contains(x.ToCity)))
+                .Select(x => x.User!)
+                .Where(x => x != null)
+                .Distinct()
+                .Take(20)
+                .ToListAsync(ct);
+
+            if (!matchingPosts.Any()) return;
+
+            var icon = newPost.PostType switch { PostType.Transport => "🚛", PostType.Dogruz => "📮", _ => "📦" };
+            var notified = new HashSet<long>();
+
+            foreach (var targetUser in matchingPosts)
+            {
+                if (notified.Contains(targetUser.TelegramId)) continue;
+                notified.Add(targetUser.TelegramId);
+
+                try
+                {
+                    var hasSub = await _db.Subscriptions.AnyAsync(
+                        x => x.UserId == targetUser.Id &&
+                            x.Status == SubscriptionStatus.Active &&
+                            x.EndDate > DateTime.UtcNow, ct);
+
+                    var notification =
+                        $"🎯 <b>FILTERINGIZGA MOS E'LON!</b>\n\n" +
+                        $"━━━━━━━━━━━━━━━━━━━━━━\n" +
+                        $"{icon} <b>{newPost.FromCity} → {newPost.ToCity}</b>\n" +
+                        (!string.IsNullOrEmpty(newPost.CargoType) ? $"🏷 {newPost.CargoType}\n" : "") +
+                        (!string.IsNullOrEmpty(newPost.Weight) ? $"⚖️ {newPost.Weight}\n" : "") +
+                        (!string.IsNullOrEmpty(newPost.VehicleType) ? $"🚗 {newPost.VehicleType}\n" : "") +
+                        (!string.IsNullOrEmpty(newPost.Price) ? $"💰 {newPost.Price}\n" : "") +
+                        (hasSub ? $"📞 <code>{newPost.ContactPhone}</code>\n" : $"📞 {MaskPhone(newPost.ContactPhone)}  🔒 <i>VIP</i>\n") +
+                        $"👤 {poster.FullName}\n" +
+                        $"🕐 {DateTime.UtcNow:dd.MM.yyyy HH:mm}\n" +
+                        $"━━━━━━━━━━━━━━━━━━━━━━";
+
+                    var kb = hasSub
+                        ? (ReplyMarkup?)null
+                        : KB.ShowPhoneButton(newPost.Id, targetUser.Language);
+
+                    await _tg.SendMessageAsync(targetUser.TelegramId, notification, kb, ct);
+                    await Task.Delay(100, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Notification failed for user {TgId}", targetUser.TelegramId);
+                }
+            }
+
+            _logger.LogInformation("Post {PostId}: notified {Count} matching users",
+                newPost.Id, notified.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "NotifyMatchingUsers failed for post {PostId}", newPost.Id);
+        }
+    }
+
     // ═══ USER TEXT HANDLERS ══════════════════════════════════════════════
     private async Task HandleUserTextAsync(string text, long tgId, long chatId,
         Domain.Entities.User user, CancellationToken ct)
@@ -513,6 +732,11 @@ public class BotUpdateHandler
         if (text.StartsWith("📞"))  { await ShowVirtualNumbersAsync(chatId, user, ct); return; }
         if (text.StartsWith("⚙️")) { await ShowUserSettingsAsync(chatId, user, ct); return; }
         if (text.StartsWith("ℹ️")) { await ShowHelpAsync(chatId, user, ct); return; }
+        if (!string.IsNullOrEmpty(text) && !text.StartsWith("/") && text.Length >= 15)
+        {
+            await HandleFreeTextPostAsync(tgId, chatId, text, user, ct);
+            return;
+        }
         if (!string.IsNullOrEmpty(text) && !text.StartsWith("/"))
             await _tg.SendMessageAsync(chatId, _loc.Get("unknown_cmd", user.Language), ct: ct);
     }
@@ -1392,6 +1616,15 @@ public class BotUpdateHandler
             case "clear" when isAdmin:
                 await HandleClearCallbackAsync(sub1, chatId, ct); break;
 
+            case "aipost" when sub1 == "confirm":
+                await HandleAiPostConfirmCallbackAsync(tgId, chatId, user, ct); break;
+            case "aipost" when sub1 == "cancel":
+                await _state.ClearStateAsync(tgId, ct);
+                await _tg.SendMessageAsync(chatId, _loc.Get("cancelled", lang),
+                    KB.MainMenu(lang), ct); break;
+            case "aipost" when sub1 == "manual":
+                await HandleAiPostManualFallbackAsync(tgId, chatId, user, ct); break;
+
             case "account" when sub1 == "add":
                 await HandleAccountAddStartAsync(tgId, chatId, user, lang, ct); break;
             case "account" when sub1 == "delete" && long.TryParse(sub2, out var accId):
@@ -1435,6 +1668,53 @@ public class BotUpdateHandler
         post.ContactViews++;
         await _db.SaveChangesAsync(ct);
         await _tg.SendMessageAsync(chatId, $"📞 <code>{post.ContactPhone}</code>", ct: ct);
+    }
+
+    private async Task HandleAiPostConfirmCallbackAsync(long tgId, long chatId,
+        Domain.Entities.User? user, CancellationToken ct)
+    {
+        if (user is null) return;
+        var draft = await _state.GetStateDataAsync<PostDraft>(tgId, ct);
+        if (draft is null)
+        {
+            await _state.ClearStateAsync(tgId, ct);
+            await _tg.SendMessageAsync(chatId, _loc.Get("cancelled", user.Language),
+                KB.MainMenu(user.Language), ct);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(draft.Phone) || draft.Phone.Length < 9)
+        {
+            await _state.SetStateAsync(tgId, UserState.WaitingAiPostConfirm, draft, ct);
+            await _tg.SendMessageAsync(chatId,
+                _loc.Get("post_contact_prompt", user.Language),
+                KB.RequestContact(user.Language), ct);
+            return;
+        }
+
+        await _state.ClearStateAsync(tgId, ct);
+        await CreatePostFromDraftAsync(tgId, chatId, draft, user, ct);
+    }
+
+    private async Task HandleAiPostManualFallbackAsync(long tgId, long chatId,
+        Domain.Entities.User? user, CancellationToken ct)
+    {
+        if (user is null) return;
+        var draft = await _state.GetStateDataAsync<PostDraft>(tgId, ct) ?? new PostDraft();
+
+        var (state, promptKey) = draft.Type switch
+        {
+            PostType.Transport => (UserState.WaitingTransportFrom, "transport_from_prompt"),
+            PostType.Dogruz => (UserState.WaitingDogruzFrom, "dogruz_from_prompt"),
+            _ => (UserState.WaitingPostFrom, "post_from_prompt"),
+        };
+
+        await _state.SetStateAsync(tgId, state, null, ct);
+        var icon = draft.Type switch { PostType.Transport => "🚛", PostType.Dogruz => "📮", _ => "📦" };
+
+        await _tg.SendMessageAsync(chatId,
+            $"{icon} <b>Qo'lda kiritish</b>\n\n{_loc.Get(promptKey, user.Language)}",
+            KB.CancelMenu(user.Language), ct);
     }
 
     private async Task HandleLanguageCallbackAsync(long tgId, long chatId, string langCode, CancellationToken ct)
@@ -1839,5 +2119,6 @@ public class BotUpdateHandler
         public string   Weight      { get; set; } = "";
         public string   VehicleType { get; set; } = "";
         public string   Price       { get; set; } = "";
+        public string?  Phone       { get; set; }
     }
 }
