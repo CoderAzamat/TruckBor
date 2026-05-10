@@ -65,4 +65,20 @@ public enum UserState
     WaitingAccountPhone,
     WaitingAccountCode,
     WaitingVirtualNumberService,
+
+    // Balance & Premium
+    WaitingBalanceTopup,
+    WaitingPremiumDuration,
+
+    // Mini App OTP
+    WaitingMiniAppOtp,
+
+    // Virtual numbers
+    WaitingVirtualCountry,
+    WaitingVirtualService,
+
+    // Admin video tutorial
+    WaitingVideoTitle,
+    WaitingVideoUrl,
+    WaitingVideoServiceKey,
 }

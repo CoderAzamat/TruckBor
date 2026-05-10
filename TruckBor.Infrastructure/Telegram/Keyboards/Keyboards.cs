@@ -1,3 +1,4 @@
+using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 using TruckBor.Domain.Enums;
 
@@ -123,7 +124,9 @@ public static class Keyboards
         new KeyboardButton[] { "📱 Akkauntlar",    "🌐 Guruhlar" },
         new KeyboardButton[] { "📬 Broadcast",     "⚙️ Sozlamalar" },
         new KeyboardButton[] { "🔒 Maj.obuna",     "🗑 Tozalash" },
-        new KeyboardButton[] { "👑 Adminlar",      "🌐 Web panel" },
+        new KeyboardButton[] { "👑 Adminlar",      "📹 Videolar" },
+        new KeyboardButton[] { "💎 Premium",       "📞 Virtual" },
+        new KeyboardButton[] { "🌐 Web panel",     "📊 Analitika" },
         new KeyboardButton[] { "🏠 Asosiy menyu" }
     })
     { ResizeKeyboard = true };
@@ -365,4 +368,98 @@ public static class Keyboards
             InlineKeyboardButton.WithCallbackData("🔄 Ko'proq", "match:more")
         }
     });
+
+    // ═══ WELCOME COMPLETE / QUICK ACTIONS ════
+    public static InlineKeyboardMarkup WelcomeCompleteMenu(Language lang, long userId, bool isAdmin)
+    {
+        string L(string uz, string uzc, string ru, string en, string tr) => lang switch
+        {
+            Language.UzCyrillic => uzc,
+            Language.Russian    => ru,
+            Language.English    => en,
+            Language.Turkish    => tr,
+            _                   => uz
+        };
+
+        var rows = new List<InlineKeyboardButton[]>
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithWebApp(
+                    L("📱 Mini App ochish", "📱 Mini App очиш", "📱 Открыть Mini App", "📱 Open Mini App", "📱 Mini App'ı Aç"),
+                    new WebAppInfo { Url = "https://t.me/TruckBorBot/app" })
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    L("💎 VIP Obuna", "💎 VIP Обуна", "💎 VIP Подписка", "💎 VIP Subscription", "💎 VIP Abonelik"),
+                    "quick:vip"),
+                InlineKeyboardButton.WithCallbackData(
+                    L("💰 Balans", "💰 Баланс", "💰 Баланс", "💰 Balance", "💰 Bakiye"),
+                    "quick:balance")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    L("📞 Virtual Raqam", "📞 Виртуал рақам", "📞 Виртуальный номер", "📞 Virtual Number", "📞 Sanal Numara"),
+                    "quick:vnumbers"),
+                InlineKeyboardButton.WithCallbackData(
+                    L("💳 TG Premium", "💳 TG Premium", "💳 TG Premium", "💳 TG Premium", "💳 TG Premium"),
+                    "quick:premium")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithUrl(
+                    L("📞 Yordam", "📞 Ёрдам", "📞 Поддержка", "📞 Support", "📞 Destek"),
+                    "https://t.me/TruckBorAdmin"),
+                InlineKeyboardButton.WithUrl(
+                    L("📢 Kanal", "📢 Канал", "📢 Канал", "📢 Channel", "📢 Kanal"),
+                    "https://t.me/TruckBorUz")
+            }
+        };
+
+        if (isAdmin)
+        {
+            rows.Add(new[]
+            {
+                InlineKeyboardButton.WithCallbackData("👨‍💼 Admin paneli", "quick:adminpanel")
+            });
+        }
+
+        return new InlineKeyboardMarkup(rows);
+    }
+
+    // ═══ BALANCE MENU ═══════════════════════
+    public static InlineKeyboardMarkup BalanceMenu(Language lang)
+    {
+        string L(string uz, string ru, string en) => lang == Language.Russian ? ru : lang == Language.English ? en : uz;
+        return new(new[]
+        {
+            new[] { InlineKeyboardButton.WithCallbackData(L("💳 Balans to'ldirish", "💳 Пополнить баланс", "💳 Top up balance"), "balance:topup") },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData(L("📋 To'lovlar tarixi", "📋 История платежей", "📋 Payment history"), "cabinet:payments"),
+                InlineKeyboardButton.WithCallbackData(L("⭐ VIP tariflar", "⭐ VIP тарифы", "⭐ VIP plans"), "quick:vip")
+            }
+        });
+    }
+
+    // ═══ PREMIUM MENU ═══════════════════════
+    public static InlineKeyboardMarkup PremiumMenu(Language lang) => new(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData("💎 1 oy — 99 000 so'm (admin)", "premium:1month") },
+        new[] { InlineKeyboardButton.WithCallbackData("⭐ Telegram Stars bilan to'lash", "premium:stars") },
+        new[] { InlineKeyboardButton.WithCallbackData(lang == Language.Russian ? "🔙 Назад" : "🔙 Orqaga", "menu:cancel") }
+    });
+
+    // ═══ VIRTUAL NUMBERS MENU ════════════════
+    public static InlineKeyboardMarkup VirtualNumbersMenu(Language lang) => new(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData("🇺🇿 O'zbekiston — 2 000 so'm", "vnumber:buy:uz"), InlineKeyboardButton.WithCallbackData("🇷🇺 Rossiya — 1 500 so'm", "vnumber:buy:ru") },
+        new[] { InlineKeyboardButton.WithCallbackData("🇰🇿 Qozog'iston — 1 800 so'm", "vnumber:buy:kz"), InlineKeyboardButton.WithCallbackData("🇬🇧 UK — 3 000 so'm", "vnumber:buy:uk") },
+        new[] { InlineKeyboardButton.WithCallbackData("🇮🇳 Hindiston — 800 so'm", "vnumber:buy:in"), InlineKeyboardButton.WithCallbackData("🇵🇱 Polsha — 2 500 so'm", "vnumber:buy:pl") },
+        new[] { InlineKeyboardButton.WithCallbackData("📋 Mening raqamlarim", "vnumber:list"), InlineKeyboardButton.WithCallbackData("💳 Balansni to'ldirish", "balance:topup") },
+        new[] { InlineKeyboardButton.WithCallbackData(lang == Language.Russian ? "🔙 Назад" : "🔙 Orqaga", "menu:cancel") }
+    });
+
 }

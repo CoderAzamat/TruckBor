@@ -93,16 +93,19 @@ public class BotUpdateHandler
         if (user is null)
         {
             var welcome =
-                "🚛 <b>TruckBor</b> — O'zbekistonning №1 logistika platformasi\n\n" +
+                "🚛 <b>TruckBor</b> — O'zbekistonning №1 Logistika Platformasi\n\n" +
                 "━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "📦 <b>Yuk e'lon</b> — 1000+ guruhga tarqatiladi\n" +
-                "🚛 <b>Transport e'lon</b> — Haydovchilar uchun\n" +
-                "📮 <b>Dogruz</b> — Qo'shimcha yuk topish\n" +
-                "🎯 <b>Mos e'lonlar</b> — AI asosida tanlanadi\n" +
-                "💎 <b>VIP obuna</b> — Ko'proq imkoniyatlar\n\n" +
+                "📦 <b>Yuk e'lon</b> — 1000+ guruhga bir zumda tarqatiladi\n" +
+                "🚛 <b>Transport e'lon</b> — Haydovchilar uchun mo'ljallangan\n" +
+                "📮 <b>Dogruz</b> — Bo'sh joy topib qo'shimcha daromad\n" +
+                "🤖 <b>AI tahlil</b> — Erkin matn yozib e'lon bering\n" +
+                "🎯 <b>Mos e'lonlar</b> — Avtomatik moslik tizimi\n" +
+                "💎 <b>VIP obuna</b> — Ko'proq guruhlar, akkauntlar\n" +
+                "📱 <b>Virtual raqamlar</b> — Yangi akkauntlar uchun\n" +
+                "💳 <b>Telegram Premium</b> — Botimiz orqali oling\n\n" +
                 "━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
                 "🌐 <b>1-qadam / 5</b>  ▰▱▱▱▱\n\n" +
-                "Tilni tanlang / Выберите язык / Choose language:";
+                "🗺️ Tilni tanlang / Выберите язык / Choose language / Dil seçin:";
             await _tg.SendMessageAsync(chatId, welcome, KB.LanguageMenu(), ct);
             await _state.SetStateAsync(tgId, UserState.WaitingLanguage, null, ct);
             return;
@@ -142,12 +145,44 @@ public class BotUpdateHandler
             await _state.SetStateAsync(tgId, UserState.WaitingLanguage, null, ct);
             return;
         }
-        var kb = isAdmin ? (ReplyMarkup)KB.AdminMenu() : KB.MainMenu(user.Language);
-        var greeting = isAdmin
-            ? $"👨‍💼 <b>Admin panel</b>\n\nXush kelibsiz, {user.FullName}!"
-            : _loc.Get("home_greeting", user.Language, user.FullName, user.Balance,
-                HasActiveSub(user.Id, ct).GetAwaiter().GetResult() ? "✅" : "❌");
-        await _tg.SendMessageAsync(chatId, greeting, kb, ct);
+
+        user.LastActivity = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        if (isAdmin)
+        {
+            // Admin sees admin menu + main menu at the bottom
+            await _tg.SendMessageAsync(chatId,
+                $"👨‍💼 <b>Admin Panel</b>\n\n" +
+                $"Xush kelibsiz, <b>{user.FullName}</b>!\n" +
+                $"━━━━━━━━━━━━━━━━━━━\n" +
+                $"🕐 {TashkentNow():dd.MM.yyyy HH:mm:ss}\n" +
+                $"🆔 ID: <code>{user.Id}</code>",
+                KB.AdminMenu(), ct);
+            return;
+        }
+
+        var hasSub = await HasActiveSub(user.Id, ct);
+        var sub = hasSub ? await _db.Subscriptions.Include(x => x.Tariff)
+            .FirstOrDefaultAsync(x => x.UserId == user.Id &&
+                x.Status == SubscriptionStatus.Active && x.EndDate > DateTime.UtcNow, ct) : null;
+
+        var greeting =
+            $"🏠 <b>{_loc.Get("main_menu", user.Language)}</b>\n\n" +
+            $"👋 {user.FullName}!\n" +
+            $"🆔 ID: <code>{user.Id}</code>\n" +
+            $"💰 Balans: <b>{user.Balance:N0}</b> so'm\n" +
+            (hasSub
+                ? $"⭐ Tarif: <b>{sub?.Tariff?.Name}</b> ({sub?.DaysLeft} kun)\n"
+                : $"⭐ Tarif: <b>Yo'q</b> — VIP oling!\n") +
+            $"📦 E'lonlar: <b>{user.TotalPosts}</b> ta";
+
+        await _tg.SendMessageAsync(chatId, greeting, KB.MainMenu(user.Language), ct);
+
+        // Send inline quick-action buttons
+        await _tg.SendMessageAsync(chatId,
+            "⚡ <b>Tezkor tugmalar:</b>",
+            KB.WelcomeCompleteMenu(user.Language, user.Id, isAdmin), ct);
     }
 
     private async Task<bool> HasActiveSub(long userId, CancellationToken ct)
@@ -184,9 +219,17 @@ public class BotUpdateHandler
                 user.IsOnboarded = true;
                 await _db.SaveChangesAsync(ct);
                 await _state.ClearStateAsync(tgId, ct);
+
+                // Send main reply keyboard first
                 await _tg.SendMessageAsync(chatId,
                     _loc.Get("onboard_complete", user.Language, fullName, user.PhoneNumber),
                     KB.MainMenu(user.Language), ct);
+
+                // Then send an inline welcome message with quick-action buttons
+                var isNewAdmin = _adminIds.Contains(tgId);
+                await _tg.SendMessageAsync(chatId,
+                    BuildWelcomeCompleteText(user),
+                    KB.WelcomeCompleteMenu(user.Language, user.Id, isNewAdmin), ct);
                 break;
         }
     }
@@ -908,9 +951,35 @@ public class BotUpdateHandler
     {
         if (string.IsNullOrEmpty(phone)) return "—";
         if (phone.Length < 5) return phone;
-        // Show: +998 ** *** **XX
         var last2 = phone[^2..];
         return $"+998 ** *** **{last2}";
+    }
+
+    private static DateTime TashkentNow()
+    {
+        try { return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Tashkent")); }
+        catch { return DateTime.UtcNow.AddHours(5); }
+    }
+
+    private static string BuildWelcomeCompleteText(Domain.Entities.User user)
+    {
+        var roleIcon = user.Role switch
+        {
+            UserRole.Driver     => "🚛",
+            UserRole.CargoOwner => "📦",
+            _                   => "🧭",
+        };
+        return
+            $"✅ <b>Profilingiz tayyor!</b>\n\n" +
+            $"━━━━━━━━━━━━━━━━━━━━━\n" +
+            $"👤 {user.FullName}\n" +
+            $"📱 {user.PhoneNumber}\n" +
+            $"🆔 Bot ID: <code>{user.Id}</code>\n" +
+            $"🎭 Rol: {roleIcon} {RoleName(user.Role)}\n" +
+            $"💰 Balans: <b>0</b> so'm\n" +
+            $"🕐 {TashkentNow():dd.MM.yyyy HH:mm}\n" +
+            $"━━━━━━━━━━━━━━━━━━━━━\n\n" +
+            "👇 Quyidagi tugmalardan birini tanlang:";
     }
 
     // ═══ TARIFFS ═════════════════════════════════════════════════════════
@@ -1246,6 +1315,10 @@ public class BotUpdateHandler
                     KB.ClearDataMenu(), ct);
                 return true;
             case "👑 Adminlar":            await AdminsListAsync(chatId, ct);                return true;
+            case "📹 Videolar":            await AdminVideosAsync(tgId, chatId, ct);         return true;
+            case "💎 Premium":             await AdminPremiumAsync(chatId, ct);              return true;
+            case "📞 Virtual":             await AdminVirtualAsync(chatId, ct);              return true;
+            case "📊 Analitika":           await AdminAnalyticsAsync(chatId, ct);            return true;
             case "🌐 Web panel":
                 await _tg.SendMessageAsync(chatId, "🌐 <b>Web Admin Panel</b>\n\nhttps://admin.truckbor.uz", ct: ct);
                 return true;
@@ -1414,6 +1487,122 @@ public class BotUpdateHandler
             $"🔱 Super: {string.Join(", ", _adminIds.Select(id => $"<code>{id}</code>"))}\n\n" +
             (admins.Any() ? string.Join("\n", admins.Select(a => $"• {a.FullName} — {(a.IsSuper ? "👑" : "👨‍💼")} <code>{a.TelegramId}</code>")) : "");
         var kb = new InlineKeyboardMarkup(new[] { new[] { InlineKeyboardButton.WithCallbackData("➕ Admin qo'shish", "admin:add") } });
+        await _tg.SendMessageAsync(chatId, text, kb, ct);
+    }
+
+    // ═══ ADMIN: VIDEOS ════════════════════════════════════════════════════
+    private async Task AdminVideosAsync(long tgId, long chatId, CancellationToken ct)
+    {
+        var text = "📹 <b>Video Darsliklar</b>\n\nXizmat uchun video qo'llanmalar boshqaruvi.\n\nHar bir xizmat uchun video qo'shishingiz mumkin: virtual raqamlar, premium, obunalar va boshqalar.";
+        var kb = new InlineKeyboardMarkup(new[]
+        {
+            new[] { InlineKeyboardButton.WithCallbackData("➕ Video qo'shish",  "video:add") },
+            new[] { InlineKeyboardButton.WithCallbackData("📋 Video ro'yxati",  "video:list") }
+        });
+        await _tg.SendMessageAsync(chatId, text, kb, ct);
+    }
+
+    // ═══ ADMIN: PREMIUM ═══════════════════════════════════════════════════
+    private async Task AdminPremiumAsync(long chatId, CancellationToken ct)
+    {
+        var text =
+            "💎 <b>Telegram Premium Boshqaruvi</b>\n\n" +
+            "Bu bo'limda foydalanuvchilar Premium so'rovlarini ko'rishingiz mumkin.\n\n";
+
+        // Fetch recent pending payments that could be premium requests
+        var premiumPayments = await _db.Payments
+            .Include(x => x.User)
+            .Where(x => x.Comment != null && x.Comment.Contains("premium") && x.Status == PaymentStatus.Pending)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(10)
+            .ToListAsync(CancellationToken.None);
+
+        if (premiumPayments.Any())
+        {
+            text += $"⏳ Kutilayotgan so'rovlar: <b>{premiumPayments.Count}</b> ta\n\n";
+            foreach (var p in premiumPayments)
+            {
+                text += $"• {p.User?.FullName} — {p.Amount:N0} so'm — {p.CreatedAt:dd.MM HH:mm}\n";
+            }
+        }
+        else
+        {
+            text += "✅ Hozircha kutilayotgan so'rovlar yo'q.";
+        }
+
+        await _tg.SendMessageAsync(chatId, text, ct: ct);
+    }
+
+    // ═══ ADMIN: VIRTUAL NUMBERS ═══════════════════════════════════════════
+    private async Task AdminVirtualAsync(long chatId, CancellationToken ct)
+    {
+        // Count pending virtual number requests (noted in balance payments)
+        var text =
+            "📞 <b>Virtual Raqamlar Boshqaruvi</b>\n\n" +
+            "Foydalanuvchilar tomonidan so'ragan virtual raqamlar ro'yxati.\n\n" +
+            "SMS-Activate API integratsiyasi tez orada qo'shiladi.\n\n";
+
+        var recentUsers = await _db.Users
+            .Where(x => x.Balance < 0 || x.TotalPosts > 0)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(5)
+            .ToListAsync(CancellationToken.None);
+
+        text += $"👥 Faol foydalanuvchilar: {recentUsers.Count} ta\n";
+        text += "\n⚙️ SMS-Activate sozlamalari:\n";
+        var apiKey = await _cache.GetAsync<string>("smsactivate_api_key", CancellationToken.None) ?? "—";
+        text += $"🔑 API Key: <code>{(apiKey.Length > 8 ? apiKey[..4] + "****" : apiKey)}</code>";
+
+        var kb = new InlineKeyboardMarkup(new[]
+        {
+            new[] { InlineKeyboardButton.WithCallbackData("🔑 API Key sozlash", "settings:set:smsactivate_api_key") }
+        });
+        await _tg.SendMessageAsync(chatId, text, kb, ct);
+    }
+
+    // ═══ ADMIN: ANALYTICS ═════════════════════════════════════════════════
+    private async Task AdminAnalyticsAsync(long chatId, CancellationToken ct)
+    {
+        var totalUsers   = await _db.Users.CountAsync(CancellationToken.None);
+        var todayUsers   = await _db.Users.CountAsync(x => x.CreatedAt.Date == DateTime.UtcNow.Date, CancellationToken.None);
+        var weekUsers    = await _db.Users.CountAsync(x => x.CreatedAt >= DateTime.UtcNow.AddDays(-7), CancellationToken.None);
+        var totalPosts   = await _db.Posts.CountAsync(CancellationToken.None);
+        var todayPosts   = await _db.Posts.CountAsync(x => x.CreatedAt.Date == DateTime.UtcNow.Date, CancellationToken.None);
+        var weekPosts    = await _db.Posts.CountAsync(x => x.CreatedAt >= DateTime.UtcNow.AddDays(-7), CancellationToken.None);
+        var activeSubs   = await _db.Subscriptions.CountAsync(x => x.Status == SubscriptionStatus.Active && x.EndDate > DateTime.UtcNow, CancellationToken.None);
+        var totalRev     = await _db.Payments.Where(x => x.Status == PaymentStatus.Approved).SumAsync(x => x.Amount, CancellationToken.None);
+        var monthRev     = await _db.Payments.Where(x => x.Status == PaymentStatus.Approved && x.ApprovedAt >= DateTime.UtcNow.AddDays(-30)).SumAsync(x => x.Amount, CancellationToken.None);
+        var totalAcc     = await _db.TelegramAccounts.CountAsync(CancellationToken.None);
+        var activeAcc    = await _db.TelegramAccounts.CountAsync(x => x.IsActive, CancellationToken.None);
+
+        TimeZoneInfo tz;
+        try { tz = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tashkent"); }
+        catch { tz = TimeZoneInfo.Utc; }
+        var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+
+        var text =
+            $"📊 <b>Analitika Hisoboti</b>\n🕐 {now:dd.MM.yyyy HH:mm} (UTC+5)\n\n" +
+            $"━━━ 👥 FOYDALANUVCHILAR ━━━\n" +
+            $"• Bugun: +{todayUsers}\n• Hafta: +{weekUsers}\n• Jami: {totalUsers:N0}\n\n" +
+            $"━━━ 📦 E'LONLAR ━━━\n" +
+            $"• Bugun: {todayPosts}\n• Hafta: {weekPosts}\n• Jami: {totalPosts:N0}\n\n" +
+            $"━━━ 💰 DAROMAD ━━━\n" +
+            $"• 30 kun: {monthRev:N0} so'm\n• Jami: {totalRev:N0} so'm\n\n" +
+            $"━━━ ⭐ OBUNALAR ━━━\n" +
+            $"• Faol: {activeSubs}\n\n" +
+            $"━━━ 📱 AKKAUNTLAR ━━━\n" +
+            $"• Faol: {activeAcc} / {totalAcc}";
+
+        var chanId = await _cache.GetAsync<string>("analytics_channel_id", CancellationToken.None);
+        var kb = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("📤 Kanalga yuborish", "analytics:send"),
+                InlineKeyboardButton.WithCallbackData("⚙️ Sozlash",          "settings:set:analytics_channel_id")
+            }
+        });
+
         await _tg.SendMessageAsync(chatId, text, kb, ct);
     }
 
@@ -1631,8 +1820,16 @@ public class BotUpdateHandler
                 await HandleAccountDeleteAsync(tgId, chatId, accId, ct); break;
 
             case "vnumber":
-                await _tg.SendMessageAsync(chatId,
-                    "📞 Virtual raqamlar xizmati tez orada ishga tushadi!", ct: ct); break;
+                await HandleVirtualNumberCallbackAsync(sub1, sub2, tgId, chatId, user, lang, ct); break;
+
+            case "balance" when sub1 == "topup":
+                await HandleBalanceTopupStartAsync(tgId, chatId, user, lang, ct); break;
+
+            case "premium":
+                await HandlePremiumCallbackAsync(sub1, tgId, chatId, user, lang, ct); break;
+
+            case "quick":
+                await HandleQuickCallbackAsync(sub1, tgId, chatId, user, lang, isAdmin, ct); break;
 
             case "menu":
                 if (sub1 == "main")
@@ -2107,6 +2304,237 @@ public class BotUpdateHandler
             $"🗑 Akkaunt o'chirildi: {account.PhoneNumber}", ct: ct);
 
         await ShowAccountsAsync(chatId, user, ct);
+    }
+
+    // ═══ QUICK ACTION CALLBACKS ═══════════════════════════════════════════
+    private async Task HandleQuickCallbackAsync(string action, long tgId, long chatId,
+        Domain.Entities.User? user, Language lang, bool isAdmin, CancellationToken ct)
+    {
+        switch (action)
+        {
+            case "vip":
+                var tariffs = await _db.Tariffs.Where(x => x.IsActive).ToListAsync(ct);
+                if (!tariffs.Any())
+                {
+                    await _tg.SendMessageAsync(chatId, "⭐ Hozircha tarif mavjud emas.", ct: ct);
+                    return;
+                }
+                var tariffKb = new InlineKeyboardMarkup(
+                    tariffs.Select(t => new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData(
+                            $"⭐ {t.Name} — {t.Price:N0} so'm ({t.DurationDays} kun)",
+                            $"tariff:buy:{t.Id}")
+                    }).ToArray());
+                await _tg.SendMessageAsync(chatId,
+                    $"⭐ <b>{(lang == Language.Russian ? "VIP тарифы" : "VIP Tariflar")}</b>\n\n" +
+                    $"Iltimos, tarif tanlang:", tariffKb, ct);
+                break;
+
+            case "balance":
+                var bal = user?.Balance ?? 0;
+                var sub = user is not null
+                    ? await _db.Subscriptions
+                        .Include(s => s.Tariff)
+                        .Where(s => s.UserId == user.Id && s.EndDate > DateTime.UtcNow)
+                        .OrderByDescending(s => s.EndDate)
+                        .FirstOrDefaultAsync(ct)
+                    : null;
+                var balText = $"💰 <b>{(lang == Language.Russian ? "Ваш баланс" : "Balansingiz")}</b>\n\n" +
+                              $"💵 {bal:N0} so'm\n" +
+                              (sub is not null ? $"⭐ {sub.Tariff?.Name} — {sub.EndDate:dd.MM.yyyy} gacha" : "⭐ Obuna yo'q");
+                await _tg.SendMessageAsync(chatId, balText, KB.BalanceMenu(lang), ct);
+                break;
+
+            case "vnumbers":
+                var vnText = lang == Language.Russian
+                    ? "📞 <b>Виртуальные номера</b>\n\nВыберите страну для получения номера:"
+                    : "📞 <b>Virtual raqamlar</b>\n\nRaqam olish uchun mamlakatni tanlang:";
+                await _tg.SendMessageAsync(chatId, vnText, KB.VirtualNumbersMenu(lang), ct);
+                break;
+
+            case "premium":
+                var premText = lang == Language.Russian
+                    ? "💎 <b>Telegram Premium</b>\n\nВыберите способ оплаты:"
+                    : "💎 <b>Telegram Premium</b>\n\nTo'lov usulini tanlang:";
+                await _tg.SendMessageAsync(chatId, premText, KB.PremiumMenu(lang), ct);
+                break;
+
+            case "adminpanel":
+                if (!isAdmin) return;
+                await _tg.SendMessageAsync(chatId, "👨‍💼 <b>Admin Panel</b>", KB.AdminMenu(), ct);
+                break;
+        }
+    }
+
+    // ═══ BALANCE TOPUP ════════════════════════════════════════════════════
+    private async Task HandleBalanceTopupStartAsync(long tgId, long chatId,
+        Domain.Entities.User? user, Language lang, CancellationToken ct)
+    {
+        if (user is null) return;
+        var cards = await _db.Cards.Where(x => x.IsActive).ToListAsync(ct);
+        if (!cards.Any())
+        {
+            await _tg.SendMessageAsync(chatId,
+                lang == Language.Russian
+                    ? "❌ Платёжные карты временно недоступны. Обратитесь в поддержку: @TruckBorAdmin"
+                    : "❌ To'lov kartalari hozircha mavjud emas. @TruckBorAdmin ga murojaat qiling", ct: ct);
+            return;
+        }
+        var text = lang == Language.Russian
+            ? "💳 <b>Пополнение баланса</b>\n\nПереведите нужную сумму на карту:\n\n"
+            : "💳 <b>Balans to'ldirish</b>\n\nQuyidagi kartaga pul o'tkazing:\n\n";
+        foreach (var c in cards)
+        {
+            text += $"💳 <code>{c.CardNumber}</code>\n👤 {c.CardHolder}";
+            if (!string.IsNullOrEmpty(c.BankName)) text += $"\n🏦 {c.BankName}";
+            text += "\n\n";
+        }
+        text += lang == Language.Russian
+            ? "📸 Отправьте скриншот квитанции."
+            : "📸 To'lov chekini yuboring.";
+        await _state.SetStateAsync(tgId, UserState.WaitingBalanceTopup, "balance", ct);
+        await _tg.SendMessageAsync(chatId, text, KB.CancelMenu(lang), ct);
+    }
+
+    // ═══ PREMIUM CALLBACKS ════════════════════════════════════════════════
+    private async Task HandlePremiumCallbackAsync(string action, long tgId, long chatId,
+        Domain.Entities.User? user, Language lang, CancellationToken ct)
+    {
+        if (user is null) return;
+        switch (action)
+        {
+            case "1month":
+                var cards = await _db.Cards.Where(x => x.IsActive).ToListAsync(ct);
+                if (!cards.Any())
+                {
+                    await _tg.SendMessageAsync(chatId, "❌ To'lov kartalari mavjud emas.", ct: ct);
+                    return;
+                }
+                var text = "💎 <b>Telegram Premium — 1 oy</b>\n\n" +
+                           "💵 Narxi: <b>99 000 so'm</b>\n\n" +
+                           "Quyidagi kartaga to'lov qiling:\n\n";
+                foreach (var c in cards)
+                {
+                    text += $"💳 <code>{c.CardNumber}</code>\n👤 {c.CardHolder}";
+                    if (!string.IsNullOrEmpty(c.BankName)) text += $"\n🏦 {c.BankName}";
+                    text += "\n\n";
+                }
+                text += "📸 To'lov chekini yuboring va @TruckBorAdmin ga Telegram usernameni ham yozing.";
+                await _tg.SendMessageAsync(chatId, text, KB.CancelMenu(lang), ct);
+                break;
+
+            case "stars":
+                await _tg.SendMessageAsync(chatId,
+                    "⭐ <b>Telegram Stars</b>\n\n" +
+                    "Telegram Stars orqali Premium to'lash tez orada ishga tushadi!\n\n" +
+                    "Hozircha admin orqali xarid qiling: @TruckBorAdmin", ct: ct);
+                break;
+        }
+    }
+
+    // ═══ VIRTUAL NUMBERS ══════════════════════════════════════════════════
+    private async Task HandleVirtualNumberCallbackAsync(string action, string country,
+        long tgId, long chatId, Domain.Entities.User? user, Language lang, CancellationToken ct)
+    {
+        if (user is null) return;
+        switch (action)
+        {
+            case "buy":
+                var prices = new Dictionary<string, (string name, int price)>
+                {
+                    ["uz"] = ("🇺🇿 O'zbekiston", 2000),
+                    ["ru"] = ("🇷🇺 Rossiya", 1500),
+                    ["kz"] = ("🇰🇿 Qozog'iston", 1800),
+                    ["uk"] = ("🇬🇧 UK", 3000),
+                    ["in"] = ("🇮🇳 Hindiston", 800),
+                    ["pl"] = ("🇵🇱 Polsha", 2500),
+                };
+                if (!prices.TryGetValue(country, out var info))
+                {
+                    await _tg.SendMessageAsync(chatId, "❌ Mamlakat topilmadi.", ct: ct);
+                    return;
+                }
+                if (user.Balance < info.price)
+                {
+                    await _tg.SendMessageAsync(chatId,
+                        $"❌ Balansingiz yetarli emas.\n\n" +
+                        $"💵 Kerak: {info.price:N0} so'm\n" +
+                        $"💰 Balans: {user.Balance:N0} so'm\n\n" +
+                        "Balansni to'ldirish uchun:",
+                        KB.BalanceMenu(lang), ct);
+                    return;
+                }
+                await _state.SetStateAsync(tgId, UserState.WaitingVirtualService, country, ct);
+                await _tg.SendMessageAsync(chatId,
+                    $"📞 <b>{info.name}</b> raqami — {info.price:N0} so'm\n\n" +
+                    "Bu xizmat SMS-Activate orqali ishlaydi.\n\n" +
+                    "⚠️ Raqam olishni tasdiqlaysizmi?\n" +
+                    $"💰 Balansingizdan {info.price:N0} so'm yechiladi.",
+                    new InlineKeyboardMarkup(new[]
+                    {
+                        new[]
+                        {
+                            InlineKeyboardButton.WithCallbackData("✅ Tasdiqlash", $"vnumber:confirm:{country}"),
+                            InlineKeyboardButton.WithCallbackData("❌ Bekor", "menu:cancel")
+                        }
+                    }), ct);
+                break;
+
+            case "confirm":
+                // Deduct balance and notify admin to provide number manually (SMS-Activate integration placeholder)
+                var pricesConf = new Dictionary<string, (string name, int price)>
+                {
+                    ["uz"] = ("🇺🇿 O'zbekiston", 2000),
+                    ["ru"] = ("🇷🇺 Rossiya", 1500),
+                    ["kz"] = ("🇰🇿 Qozog'iston", 1800),
+                    ["uk"] = ("🇬🇧 UK", 3000),
+                    ["in"] = ("🇮🇳 Hindiston", 800),
+                    ["pl"] = ("🇵🇱 Polsha", 2500),
+                };
+                if (!pricesConf.TryGetValue(country, out var cInfo))
+                {
+                    await _tg.SendMessageAsync(chatId, "❌ Mamlakat topilmadi.", ct: ct);
+                    return;
+                }
+                if (user.Balance < cInfo.price)
+                {
+                    await _tg.SendMessageAsync(chatId, "❌ Balansingiz yetarli emas.", ct: ct);
+                    return;
+                }
+                user.Balance -= cInfo.price;
+                await _db.SaveChangesAsync(ct);
+                await _state.ClearStateAsync(tgId, ct);
+                // Notify admin
+                foreach (var adminId in _adminIds)
+                {
+                    try
+                    {
+                        await _tg.SendMessageAsync(adminId,
+                            $"📞 <b>Virtual raqam so'rovi</b>\n\n" +
+                            $"👤 {user.FullName}\n" +
+                            $"📱 {user.PhoneNumber}\n" +
+                            $"🌍 Mamlakat: {cInfo.name}\n" +
+                            $"💰 To'landi: {cInfo.price:N0} so'm\n" +
+                            $"🆔 User ID: <code>{user.TelegramId}</code>", ct: ct);
+                    }
+                    catch { }
+                }
+                await _tg.SendMessageAsync(chatId,
+                    $"✅ <b>So'rovingiz qabul qilindi!</b>\n\n" +
+                    $"🌍 {cInfo.name} raqami\n" +
+                    $"💰 {cInfo.price:N0} so'm yechildi\n" +
+                    $"💵 Qoldiq: {user.Balance:N0} so'm\n\n" +
+                    "📞 Admin 5-10 daqiqa ichida raqam yuboradi.",
+                    KB.MainMenu(lang), ct);
+                break;
+
+            case "list":
+                await _tg.SendMessageAsync(chatId,
+                    "📋 <b>Mening raqamlarim</b>\n\nVirtual raqamlar tarixi tez orada qo'shiladi.",
+                    ct: ct);
+                break;
+        }
     }
 
     // ═══ POST DRAFT ═══════════════════════════════════════════════════════
