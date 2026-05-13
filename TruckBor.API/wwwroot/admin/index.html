@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TruckBor Admin Panel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --bg:#06091a;--bg2:#0d1225;--bg3:#111827;
+  --accent:#378ADD;--accent2:#1d5fad;
+  --text:#e8eaf6;--text2:#8892a4;--text3:#4a5568;
+  --border:#1a2540;--border2:#253050;
+  --success:#22c55e;--danger:#ef4444;--warn:#f59e0b;
+  --card-bg:#0d1225;--sidebar-w:240px;
+  --radius:10px;--shadow:0 4px 24px rgba(55,138,221,.15);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex}
+a{color:var(--accent);text-decoration:none}
+button{cursor:pointer;border:none;outline:none;font-family:inherit}
+input,select,textarea{font-family:inherit;outline:none}
+
+/* ── SIDEBAR ────────────────── */
+#sidebar{
+  width:var(--sidebar-w);min-height:100vh;background:var(--bg2);
+  border-right:1px solid var(--border);display:flex;flex-direction:column;
+  position:fixed;top:0;left:0;bottom:0;z-index:100;transition:.25s;
+}
+.logo{padding:20px 18px 16px;border-bottom:1px solid var(--border)}
+.logo h1{font-size:1.2rem;color:var(--accent);font-weight:700;letter-spacing:.5px}
+.logo small{color:var(--text2);font-size:.7rem}
+nav{flex:1;padding:12px 8px;overflow-y:auto}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border-radius:8px;cursor:pointer;color:var(--text2);font-size:.875rem;
+  transition:.2s;margin-bottom:2px;
+}
+.nav-item:hover{background:var(--border);color:var(--text)}
+.nav-item.active{background:rgba(55,138,221,.15);color:var(--accent)}
+.nav-item .icon{font-size:1.1rem;width:20px;text-align:center}
+.nav-sep{padding:6px 12px 4px;font-size:.65rem;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+.sidebar-bottom{padding:12px;border-top:1px solid var(--border)}
+.admin-info{display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:var(--border)}
+.avatar{width:36px;height:36px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem}
+
+/* ── MAIN ────────────────────── */
+#main{margin-left:var(--sidebar-w);flex:1;min-height:100vh;display:flex;flex-direction:column}
+#topbar{
+  background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;
+  display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:90;
+}
+.topbar-title{font-size:1rem;font-weight:600;color:var(--text)}
+.topbar-right{display:flex;align-items:center;gap:12px}
+.badge{background:var(--danger);color:#fff;border-radius:99px;font-size:.7rem;padding:2px 7px;font-weight:700}
+.clock{color:var(--text2);font-size:.8rem;font-variant-numeric:tabular-nums}
+#content{flex:1;padding:24px;max-width:1400px;width:100%}
+
+/* ── CARDS / GRID ─────────────── */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.stat-card .label{color:var(--text2);font-size:.75rem;margin-bottom:6px}
+.stat-card .value{font-size:1.6rem;font-weight:700;color:var(--text)}
+.stat-card .sub{color:var(--text2);font-size:.75rem;margin-top:4px}
+.stat-card.accent{border-color:var(--accent);background:rgba(55,138,221,.07)}
+.stat-card.accent .value{color:var(--accent)}
+.stat-card.success{border-color:var(--success);background:rgba(34,197,94,.07)}
+.stat-card.success .value{color:var(--success)}
+.stat-card.warn{border-color:var(--warn);background:rgba(245,158,11,.07)}
+.stat-card.warn .value{color:var(--warn)}
+
+/* ── TABLE ────────────────────── */
+.table-wrap{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.table-head{
+  padding:14px 18px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.table-head h2{font-size:.95rem;font-weight:600}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--bg)}
+th{padding:10px 14px;text-align:left;font-size:.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+td{padding:10px 14px;border-top:1px solid var(--border);font-size:.85rem;vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.02)}
+
+/* ── STATUS PILLS ──────────────── */
+.pill{padding:3px 10px;border-radius:99px;font-size:.72rem;font-weight:600;display:inline-block}
+.pill-green{background:rgba(34,197,94,.15);color:var(--success)}
+.pill-red{background:rgba(239,68,68,.15);color:var(--danger)}
+.pill-yellow{background:rgba(245,158,11,.15);color:var(--warn)}
+.pill-blue{background:rgba(55,138,221,.15);color:var(--accent)}
+
+/* ── BUTTONS ──────────────────── */
+.btn{padding:7px 16px;border-radius:7px;font-size:.82rem;font-weight:600;transition:.2s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2)}
+.btn-ghost{background:transparent;border:1px solid var(--border2);color:var(--text2)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{opacity:.85}
+.btn-success{background:var(--success);color:#fff}
+.btn-sm{padding:4px 10px;font-size:.75rem}
+.btn-icon{padding:6px;border-radius:6px;background:transparent;color:var(--text2);font-size:1rem}
+.btn-icon:hover{background:var(--border);color:var(--text)}
+
+/* ── INPUTS ──────────────────── */
+.input{
+  background:var(--bg);border:1px solid var(--border2);color:var(--text);
+  border-radius:7px;padding:8px 12px;font-size:.85rem;width:100%;transition:.2s;
+}
+.input:focus{border-color:var(--accent)}
+.input-wrap{position:relative}
+.search-bar{display:flex;gap:8px;align-items:center}
+select.input{cursor:pointer}
+
+/* ── MODAL ────────────────────── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow)}
+.modal-head{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-head h3{font-size:1rem;font-weight:600}
+.modal-body{padding:20px}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:.78rem;color:var(--text2);margin-bottom:5px}
+
+/* ── LOGIN PAGE ─────────────────── */
+#login-page{display:none;align-items:center;justify-content:center;min-height:100vh;width:100%;background:var(--bg)}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px;width:360px;box-shadow:var(--shadow)}
+.login-box h2{font-size:1.4rem;margin-bottom:4px;color:var(--accent)}
+.login-box p{color:var(--text2);font-size:.85rem;margin-bottom:24px}
+.login-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--danger);padding:10px 12px;border-radius:7px;font-size:.82rem;margin-top:10px;display:none}
+
+/* ── PAGINATION ─────────────────── */
+.pagination{display:flex;gap:6px;align-items:center;margin-top:14px;justify-content:flex-end}
+.page-btn{width:32px;height:32px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:.82rem;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s}
+.page-btn:hover,.page-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ── TOAST ────────────────────── */
+#toast{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 18px;border-radius:10px;font-size:.85rem;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:slideIn .25s ease;max-width:320px}
+.toast-success{background:#064e3b;border:1px solid var(--success);color:var(--success)}
+.toast-error{background:#450a0a;border:1px solid var(--danger);color:var(--danger)}
+.toast-info{background:#1e3a5f;border:1px solid var(--accent);color:var(--accent)}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+/* ── CHART ────────────────────── */
+.chart-bar-wrap{display:flex;align-items:flex-end;gap:6px;height:80px}
+.chart-bar{flex:1;background:rgba(55,138,221,.25);border-radius:4px 4px 0 0;position:relative;transition:.4s;cursor:default}
+.chart-bar:hover{background:rgba(55,138,221,.6)}
+.chart-bar .tip{position:absolute;top:-24px;left:50%;transform:translateX(-50%);font-size:.65rem;color:var(--text2);white-space:nowrap}
+.chart-labels{display:flex;gap:6px;margin-top:4px}
+.chart-labels span{flex:1;text-align:center;font-size:.65rem;color:var(--text3)}
+
+/* ── MISC ─────────────────────── */
+.section-title{font-size:1.05rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.empty{padding:40px;text-align:center;color:var(--text2)}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+.flex{display:flex}.gap-8{gap:8px}.items-center{align-items:center}
+.ml-auto{margin-left:auto}
+.text-sm{font-size:.8rem}.text-xs{font-size:.72rem}.text-muted{color:var(--text2)}
+
+/* ── SCROLLBAR ────────────────── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- ════════════════ LOGIN ════════════════ -->
+<div id="login-page" style="display:flex">
+  <div class="login-box">
+    <h2>🚛 TruckBor</h2>
+    <p>Admin panel — kirish</p>
+    <div class="form-row">
+      <label>Username</label>
+      <input class="input" id="login-user" placeholder="admin" autocomplete="username">
+    </div>
+    <div class="form-row">
+      <label>Parol</label>
+      <input class="input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="doLogin()">
+      Kirish
+    </button>
+    <div class="login-error" id="login-err"></div>
+  </div>
+</div>
+
+<!-- ════════════════ APP ════════════════ -->
+<div id="app" class="hidden" style="display:flex;width:100%">
+
+  <!-- SIDEBAR -->
+  <nav id="sidebar">
+    <div class="logo">
+      <h1>🚛 TruckBor</h1>
+      <small id="admin-badge">Admin Panel</small>
+    </div>
+    <nav>
+      <div class="nav-item active" onclick="showPage('dashboard')" data-page="dashboard">
+        <span class="icon">📊</span> Dashboard
+      </div>
+      <div class="nav-sep">Boshqaruv</div>
+      <div class="nav-item" onclick="showPage('users')" data-page="users">
+        <span class="icon">👥</span> Foydalanuvchilar
+      </div>
+      <div class="nav-item" onclick="showPage('payments')" data-page="payments">
+        <span class="icon">💰</span> To'lovlar
+        <span class="badge hidden" id="pending-badge">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('tariffs')" data-page="tariffs">
+        <span class="icon">⭐</span> Tariflar
+      </div>
+      <div class="nav-sep">Tizim</div>
+      <div class="nav-item" onclick="showPage('groups')" data-page="groups">
+        <span class="icon">🌐</span> Guruhlar
+      </div>
+      <div class="nav-item" onclick="showPage('cards')" data-page="cards">
+        <span class="icon">💳</span> Kartalar
+      </div>
+      <div class="nav-item" onclick="showPage('channels')" data-page="channels">
+        <span class="icon">📢</span> Kanallar
+      </div>
+      <div class="nav-item" onclick="showPage('settings')" data-page="settings">
+        <span class="icon">⚙️</span> Sozlamalar
+      </div>
+      <div class="nav-item" onclick="showPage('broadcast')" data-page="broadcast">
+        <span class="icon">📬</span> Broadcast
+      </div>
+      <div class="nav-item" onclick="showPage('admins')" data-page="admins">
+        <span class="icon">👑</span> Adminlar
+      </div>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="admin-info">
+        <div class="avatar" id="admin-avatar">A</div>
+        <div>
+          <div style="font-size:.82rem;font-weight:600" id="admin-name">Admin</div>
+          <div style="font-size:.7rem;color:var(--text2)">Super Admin</div>
+        </div>
+        <button class="btn-icon ml-auto" onclick="doLogout()" title="Chiqish">🚪</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div id="main">
+    <div id="topbar">
+      <div class="topbar-title" id="page-title">Dashboard</div>
+      <div class="topbar-right">
+        <div class="clock" id="clock">--:--:--</div>
+      </div>
+    </div>
+    <div id="content"></div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="overlay hidden" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-box"></div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════════════
+const API = 'https://api.truckbor.uz/api/admin';
+let TOKEN = localStorage.getItem('admin_token') || '';
+let ME    = JSON.parse(localStorage.getItem('admin_me') || 'null');
+let curPage = 'dashboard';
+
+// ══════════════════════════════════════════════════════════
+//  CLOCK
+// ══════════════════════════════════════════════════════════
+function startClock(){
+  const el = document.getElementById('clock');
+  if(!el) return;
+  function tick(){
+    const now = new Date();
+    // Tashkent UTC+5
+    const tz = new Date(now.getTime() + (5*60 - now.getTimezoneOffset())*60000);
+    el.textContent = tz.toISOString().slice(11,19) + ' 🇺🇿';
+  }
+  tick(); setInterval(tick,1000);
+}
+
+// ══════════════════════════════════════════════════════════
+//  HTTP
+// ══════════════════════════════════════════════════════════
+async function api(method, path, body){
+  const opts = {
+    method,
+    headers:{'Content-Type':'application/json', ...(TOKEN?{Authorization:'Bearer '+TOKEN}:{})},
+    ...(body?{body:JSON.stringify(body)}:{})
+  };
+  const res = await fetch(API+path, opts);
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || data.title || 'Xato '+res.status);
+  return data;
+}
+const GET  = p  => api('GET',  p);
+const POST = (p,b)=> api('POST', p, b);
+const PUT  = (p,b)=> api('PUT',  p, b);
+const DEL  = p  => api('DELETE', p);
+
+// ══════════════════════════════════════════════════════════
+//  AUTH
+// ══════════════════════════════════════════════════════════
+async function doLogin(){
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-err');
+  errEl.style.display='none';
+  try{
+    const data = await POST('/auth/login',{username:user,password:pass});
+    TOKEN = data.token;
+    ME    = data.admin;
+    localStorage.setItem('admin_token',TOKEN);
+    localStorage.setItem('admin_me',JSON.stringify(ME));
+    initApp();
+  }catch(e){
+    errEl.textContent = e.message;
+    errEl.style.display='block';
+  }
+}
+document.getElementById('login-pass')?.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('login-user')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login-pass').focus()});
+
+function doLogout(){
+  TOKEN=''; ME=null;
+  localStorage.removeItem('admin_token');
+  localStorage.removeItem('admin_me');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login-page').style.display='flex';
+}
+
+async function initApp(){
+  document.getElementById('login-page').style.display='none';
+  document.getElementById('app').classList.remove('hidden');
+  if(ME){
+    document.getElementById('admin-name').textContent = ME.fullName;
+    document.getElementById('admin-avatar').textContent = (ME.fullName||'A')[0].toUpperCase();
+    document.getElementById('admin-badge').textContent = ME.isSuper?'⭐ Super Admin':'Admin';
+  }
+  startClock();
+  showPage('dashboard');
+  // Poll pending payments count every 30s
+  refreshPendingBadge();
+  setInterval(refreshPendingBadge,30000);
+}
+
+async function refreshPendingBadge(){
+  try{
+    const d = await GET('/payments?status=0&limit=1');
+    const cnt = d.total||0;
+    const badge = document.getElementById('pending-badge');
+    badge.textContent = cnt;
+    badge.classList.toggle('hidden', cnt===0);
+  }catch{}
+}
+
+// ══════════════════════════════════════════════════════════
+//  ROUTING
+// ══════════════════════════════════════════════════════════
+const pages = {
+  dashboard: pageDashboard,
+  users:     pageUsers,
+  payments:  pagePayments,
+  tariffs:   pageTariffs,
+  groups:    pageGroups,
+  cards:     pageCards,
+  channels:  pageChannels,
+  settings:  pageSettings,
+  broadcast: pageBroadcast,
+  admins:    pageAdmins,
+};
+const titles={dashboard:'📊 Dashboard',users:'👥 Foydalanuvchilar',payments:'💰 To\'lovlar',tariffs:'⭐ Tariflar',groups:'🌐 Guruhlar',cards:'💳 Kartalar',channels:'📢 Kanallar',settings:'⚙️ Sozlamalar',broadcast:'📬 Broadcast',admins:'👑 Adminlar'};
+
+function showPage(name){
+  curPage=name;
+  document.querySelectorAll('.nav-item').forEach(el=>{
+    el.classList.toggle('active', el.dataset.page===name);
+  });
+  document.getElementById('page-title').textContent = titles[name]||name;
+  document.getElementById('content').innerHTML = '<div class="empty"><div class="spinner"></div></div>';
+  pages[name]?.();
+}
+
+// ══════════════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════════════
+function toast(msg,type='info'){
+  const el = document.createElement('div');
+  el.className=`toast toast-${type}`;
+  el.textContent=msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(()=>el.remove(),3500);
+}
+
+// ══════════════════════════════════════════════════════════
+//  MODAL
+// ══════════════════════════════════════════════════════════
+function openModal(html){
+  document.getElementById('modal-box').innerHTML=html;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+function closeModal(e){
+  if(!e||e.target===document.getElementById('modal-overlay'))
+    document.getElementById('modal-overlay').classList.add('hidden');
+}
+function closeModalForce(){
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+// ══════════════════════════════════════════════════════════
+//  DASHBOARD
+// ══════════════════════════════════════════════════════════
+async function pageDashboard(){
+  try{
+    const d = await GET('/dashboard');
+    const maxAmt = Math.max(...d.chartData.map(c=>c.amount),1);
+    const bars = d.chartData.map(c=>`
+      <div class="chart-bar" style="height:${Math.max(c.amount/maxAmt*100,4)}%" title="${c.date}: ${fmt(c.amount)} so'm / ${c.users} user">
+        <span class="tip">${c.amount?fmt(c.amount):''}</span>
+      </div>`).join('');
+    const labels = d.chartData.map(c=>`<span>${c.date}</span>`).join('');
+
+    document.getElementById('content').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card accent">
+        <div class="label">Jami foydalanuvchi</div>
+        <div class="value">${d.totalUsers.toLocaleString()}</div>
+        <div class="sub">+${d.todayUsers} bugun · +${d.weekUsers} hafta</div>
+      </div>
+      <div class="stat-card success">
+        <div class="label">Faol obunalar</div>
+        <div class="value">${d.activeSubs}</div>
+        <div class="sub">Aktiv VIP foydalanuvchilar</div>
+      </div>
+      <div class="stat-card warn">
+        <div class="label">Kutilayotgan to'lov</div>
+        <div class="value">${d.pendingPay}</div>
+        <div class="sub"><a href="#" onclick="showPage('payments')">Ko'rish →</a></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Bugungi daromad</div>
+        <div class="value" style="color:var(--success)">${fmt(d.todayIncome)}</div>
+        <div class="sub">${fmt(d.monthIncome)} — bu oy</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Jami daromad</div>
+        <div class="value">${fmt(d.totalIncome)}</div>
+        <div class="sub">Barcha vaqt</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">E'lonlar</div>
+        <div class="value">${d.totalPosts.toLocaleString()}</div>
+        <div class="sub">+${d.todayPosts} bugun</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Guruhlar</div>
+        <div class="value">${d.activeGroups}</div>
+        <div class="sub">Jami: ${d.totalGroups}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="table-wrap">
+        <div class="table-head"><h2>📈 So'nggi 7 kun daromad</h2></div>
+        <div style="padding:16px 18px 10px">
+          <div class="chart-bar-wrap">${bars}</div>
+          <div class="chart-labels">${labels}</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <div class="table-head"><h2>💳 So'nggi to'lovlar</h2></div>
+        <table>
+          <thead><tr><th>Foydalanuvchi</th><th>Tarif</th><th>Summa</th><th>Holat</th></tr></thead>
+          <tbody>
+          ${d.recentPayments.map(p=>`<tr>
+            <td>${p.userName}</td>
+            <td>${p.tariff}</td>
+            <td>${fmt(p.amount)}</td>
+            <td>${statusPill(p.status)}</td>
+          </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;color:var(--text2);font-size:.75rem;text-align:right">
+      Server vaqti: ${d.serverTime}
+    </div>`;
+  }catch(e){
+    document.getElementById('content').innerHTML=`<div class="empty" style="color:var(--danger)">${e.message}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  USERS
+// ══════════════════════════════════════════════════════════
+let usersPage=1, usersSearch='', usersTotal=0;
+async function pageUsers(){
+  renderUsersControls();
+  await loadUsers();
+}
+function renderUsersControls(){
+  document.getElementById('content').innerHTML=`
+  <div class="search-bar" style="margin-bottom:16px">
+    <input class="input" id="user-search" placeholder="🔍 Ism, telefon, TG ID..." value="${usersSearch}" style="max-width:320px"
+      oninput="usersSearch=this.value" onkeydown="if(event.key==='Enter'){usersPage=1;loadUsers()}">
+    <button class="btn btn-primary" onclick="usersPage=1;loadUsers()">Qidirish</button>
+  </div>
+  <div id="users-table"><div class="empty"><div class="spinner"></div></div></div>`;
+}
+async function loadUsers(){
+  try{
+    const d=await GET(`/users?search=${encodeURIComponent(usersSearch)}&page=${usersPage}&limit=20`);
+    usersTotal=d.total;
+    const rows=d.users.map(u=>`<tr>
+      <td><b>${esc(u.fullName)}</b><br><small class="text-muted">${esc(u.phoneNumber||'—')}</small></td>
+      <td><code style="font-size:.75rem;color:var(--text2)">${u.telegramId}</code></td>
+      <td>${u.balance.toLocaleString()} so'm</td>
+      <td>${u.totalPosts}</td>
+      <td>${u.hasActiveSub?'<span class="pill pill-green">VIP ✅</span>':'<span class="pill pill-yellow">Free</span>'}</td>
+      <td>${u.isBlocked?'<span class="pill pill-red">Bloklangan</span>':'<span class="pill pill-green">Faol</span>'}</td>
+      <td>${fmtDate(u.createdAt)}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="openUserDetail(${u.id})">Ko'rish</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('users-table').innerHTML=`
+    <div class="table-wrap">
+      <div class="table-head">
+        <h2>Jami: ${d.total.toLocaleString()}</h2>
+        <button class="btn btn-ghost btn-sm" onclick="exportUsersPdf()">📄 PDF export</button>
+      </div>
+      <table>
+        <thead><tr><th>Ism</th><th>TG ID</th><th>Balans</th><th>E'lonlar</th><th>Tarif</th><th>Holat</th><th>Sana</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="8" class="empty">Topilmadi</td></tr>'}</tbody>
+      </table>
+    </div>
+    ${paginator(usersTotal,20,usersPage,'usersPage','loadUsers')}`;
+  }catch(e){toast(e.message,'error')}
+}
+
+async function openUserDetail(id){
+  try{
+    const u=await GET(`/users/${id}`);
+    const tariffs=await GET('/tariffs');
+    openModal(`
+    <div class="modal-head">
+      <h3>👤 ${esc(u.fullName)}</h3>
+      <button class="btn-icon" onclick="closeModalForce()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div><div class="text-xs text-muted">Telefon</div><div>${esc(u.phoneNumber||'—')}</div></div>
+        <div><div class="text-xs text-muted">TG ID</div><div><code>${u.telegramId}</code></div></div>
+        <div><div class="text-xs text-muted">Balans</div><div style="color:var(--accent);font-weight:700">${u.balance.toLocaleString()} so'm</div></div>
+        <div><div class="text-xs text-muted">Jami e'lon</div><div>${u.totalPosts}</div></div>
+        <div><div class="text-xs text-muted">Ro'yxatdan</div><div>${fmtDate(u.createdAt)}</div></div>
+        <div><div class="text-xs text-muted">Holat</div><div>${u.isBlocked?'🚫 Bloklangan':'✅ Faol'}</div></div>
+      </div>
+
+      ${u.subscriptions?.length?`
+      <div style="margin-bottom:16px">
+        <div class="text-xs text-muted" style="margin-bottom:6px">OBUNALAR</div>
+        ${u.subscriptions.map(s=>`<div style="padding:8px;background:var(--bg);border-radius:6px;font-size:.82rem;margin-bottom:4px">
+          ⭐ ${s.tariff} &nbsp;•&nbsp; ${fmtDate(s.startDate)} → ${fmtDate(s.endDate)} &nbsp;
+          <span class="pill ${s.status===1?'pill-green':'pill-red'}">${s.daysLeft} kun</span>
+        </div>`).join('')}
+      </div>`:''}
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="userAction(${id},'balance')">💰 Balans</button>
+        <button class="btn btn-ghost btn-sm" onclick="userAction(${id},'tariff',${JSON.stringify(tariffs)})">⭐ Tarif ber</button>
+        <button class="btn btn-ghost btn-sm" onclick="userAction(${id},'msg')">✉️ Xabar</button>
+        <button class="btn ${u.isBlocked?'btn-success':'btn-danger'} btn-sm" onclick="userAction(${id},'${u.isBlocked?'unban':'ban'}')">
+          ${u.isBlocked?'✅ Blokdan chiqar':'🚫 Bloklash'}
+        </button>
+      </div>
+    </div>`);
+  }catch(e){toast(e.message,'error')}
+}
+
+async function userAction(id,act,extra){
+  if(act==='ban'||act==='unban'){
+    try{
+      await POST(`/users/${id}/ban`,{ban:act==='ban'});
+      toast(act==='ban'?'Bloklandi':'Blokdan chiqarildi','success');
+      closeModalForce(); loadUsers();
+    }catch(e){toast(e.message,'error')}
+  }
+  else if(act==='balance'){
+    openModal(`<div class="modal-head"><h3>💰 Balans o'zgartirish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label>Miqdor (+/−)</label><input class="input" id="bal-amt" placeholder="+50000 yoki -10000"></div>
+      <div class="form-row"><label>Sabab</label><input class="input" id="bal-note" placeholder="Admin gift..."></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+      <button class="btn btn-primary" onclick="submitBalance(${id})">Saqlash</button>
+    </div>`);
+  }
+  else if(act==='tariff'){
+    const tariffs=extra||[];
+    openModal(`<div class="modal-head"><h3>⭐ Tarif berish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label>Tarif</label>
+        <select class="input" id="give-tariff">${tariffs.map(t=>`<option value="${t.id}">${t.name} — ${t.price.toLocaleString()} so'm</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+      <button class="btn btn-primary" onclick="submitGiveTariff(${id})">Berish</button>
+    </div>`);
+  }
+  else if(act==='msg'){
+    openModal(`<div class="modal-head"><h3>✉️ Xabar yuborish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label>Xabar matni (HTML qo'llash mumkin)</label>
+        <textarea class="input" id="user-msg" rows="4" placeholder="&lt;b&gt;Salom!&lt;/b&gt;..."></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+      <button class="btn btn-primary" onclick="submitUserMsg(${id})">Yuborish</button>
+    </div>`);
+  }
+}
+
+async function submitBalance(id){
+  const amt=parseFloat(document.getElementById('bal-amt').value.replace(/\s/g,''));
+  const note=document.getElementById('bal-note').value;
+  if(isNaN(amt)){toast('Miqdor kiriting','error');return;}
+  try{
+    await POST(`/users/${id}/balance`,{amount:amt,note});
+    toast(`Balans yangilandi: ${amt>0?'+':''}${amt.toLocaleString()} so'm`,'success');
+    closeModalForce(); loadUsers();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function submitGiveTariff(id){
+  const tariffId=parseInt(document.getElementById('give-tariff').value);
+  try{
+    await POST(`/users/${id}/give-tariff`,{tariffId});
+    toast('Tarif berildi!','success');
+    closeModalForce();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function submitUserMsg(id){
+  const text=document.getElementById('user-msg').value;
+  try{
+    await POST(`/users/${id}/message`,{text});
+    toast('Xabar yuborildi','success');
+    closeModalForce();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  PAYMENTS
+// ══════════════════════════════════════════════════════════
+let payPage=1, payStatus='', payTotal=0;
+async function pagePayments(){
+  document.getElementById('content').innerHTML=`
+  <div class="search-bar" style="margin-bottom:16px">
+    <select class="input" id="pay-status" style="max-width:200px" onchange="payStatus=this.value;payPage=1;loadPayments()">
+      <option value="">Barcha to'lovlar</option>
+      <option value="0" selected>⏳ Kutilayotgan</option>
+      <option value="1">✅ Tasdiqlangan</option>
+      <option value="2">❌ Rad etilgan</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadPayments()">Yangilash</button>
+  </div>
+  <div id="pay-table"><div class="empty"><div class="spinner"></div></div></div>`;
+  payStatus='0';
+  document.getElementById('pay-status').value='0';
+  await loadPayments();
+}
+
+async function loadPayments(){
+  try{
+    const s = payStatus!==''?`&status=${payStatus}`:'';
+    const d = await GET(`/payments?page=${payPage}&limit=20${s}`);
+    payTotal=d.total;
+    const rows=d.payments.map(p=>`<tr>
+      <td><b>${esc(p.userName)}</b><br><small class="text-muted">${esc(p.userPhone||'—')}</small></td>
+      <td>${esc(p.tariff)}</td>
+      <td style="font-weight:700">${fmt(p.amount)}</td>
+      <td>${statusPill(p.status)}</td>
+      <td>${fmtDate(p.createdAt)}</td>
+      <td>
+        ${p.status===0?`
+          <button class="btn btn-success btn-sm" onclick="approvePayment(${p.id})">✅</button>
+          <button class="btn btn-danger btn-sm" onclick="rejectPayment(${p.id})">❌</button>
+          ${p.checkFileId?`<a href="https://api.truckbor.uz/api/admin/payments/${p.id}/file" target="_blank" class="btn btn-ghost btn-sm">📎</a>`:''}
+        `:'—'}
+      </td>
+    </tr>`).join('');
+    document.getElementById('pay-table').innerHTML=`
+    <div class="table-wrap">
+      <div class="table-head">
+        <h2>Jami: ${d.total}</h2>
+        <button class="btn btn-ghost btn-sm" onclick="exportPaymentsPdf()">📄 PDF export</button>
+      </div>
+      <table>
+        <thead><tr><th>Foydalanuvchi</th><th>Tarif</th><th>Summa</th><th>Holat</th><th>Sana</th><th>Amal</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="6" class="empty">To\'lovlar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>
+    ${paginator(payTotal,20,payPage,'payPage','loadPayments')}`;
+  }catch(e){toast(e.message,'error')}
+}
+
+async function approvePayment(id){
+  const amt = prompt('Tasdiqlangan summa (so\'mda):');
+  if(!amt) return;
+  try{
+    await POST(`/payments/${id}/approve`,{amount:parseFloat(amt.replace(/\s/g,''))});
+    toast('To\'lov tasdiqlandi!','success');
+    refreshPendingBadge(); loadPayments();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function rejectPayment(id){
+  const reason = prompt('Rad etish sababi:') || 'Chek tasdiqlanmadi';
+  try{
+    await POST(`/payments/${id}/reject`,{reason});
+    toast('Rad etildi','info');
+    refreshPendingBadge(); loadPayments();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  TARIFFS
+// ══════════════════════════════════════════════════════════
+async function pageTariffs(){
+  await loadTariffs();
+}
+async function loadTariffs(){
+  try{
+    const tariffs = await GET('/tariffs');
+    const rows=tariffs.map(t=>`<tr>
+      <td><b>${esc(t.name)}</b><br><small class="text-muted">${esc(t.description||'')}</small></td>
+      <td>${fmt(t.price)}</td>
+      <td>${t.durationDays} kun</td>
+      <td>${t.maxAccounts}</td>
+      <td>${t.maxGroups}</td>
+      <td>${t.postsPerDay}</td>
+      <td>${t.isActive?'<span class="pill pill-green">Faol</span>':'<span class="pill pill-red">Nofaol</span>'}
+          ${t.isRecommended?'<span class="pill pill-blue">🔥</span>':''}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editTariff(${JSON.stringify(t).replace(/'/g,'&apos;')})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTariff(${t.id})">🗑</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="editTariff(null)">+ Yangi tarif</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Nomi</th><th>Narx</th><th>Muddat</th><th>Akkaunt</th><th>Guruh</th><th>E'lon/kun</th><th>Holat</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="8" class="empty">Tariflar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+
+function editTariff(t){
+  openModal(`<div class="modal-head"><h3>${t?'Tarifni tahrirlash':'Yangi tarif'}</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Nomi</label><input class="input" id="tf-name" value="${esc(t?.name||'')}"></div>
+    <div class="form-row"><label>Tavsif</label><input class="input" id="tf-desc" value="${esc(t?.description||'')}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-row"><label>Narx (so'm)</label><input class="input" id="tf-price" type="number" value="${t?.price||''}"></div>
+      <div class="form-row"><label>Muddat (kun)</label><input class="input" id="tf-days" type="number" value="${t?.durationDays||''}"></div>
+      <div class="form-row"><label>Maks akkaunt</label><input class="input" id="tf-acc" type="number" value="${t?.maxAccounts||3}"></div>
+      <div class="form-row"><label>Maks guruh</label><input class="input" id="tf-grp" type="number" value="${t?.maxGroups||100}"></div>
+      <div class="form-row"><label>E'lon/kun</label><input class="input" id="tf-ppd" type="number" value="${t?.postsPerDay||5}"></div>
+      <div class="form-row"><label>Interval (daqiqa)</label><input class="input" id="tf-int" type="number" value="${t?.postIntervalMinutes||60}"></div>
+      <div class="form-row"><label>Tartib</label><input class="input" id="tf-sort" type="number" value="${t?.sortOrder||0}"></div>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:8px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="tf-recommended" ${t?.isRecommended?'checked':''}> 🔥 Tavsiya etiladi
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="tf-active" ${!t||t.isActive?'checked':''}> ✅ Faol
+      </label>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveTariff(${t?t.id:null})">Saqlash</button>
+  </div>`);
+}
+
+async function saveTariff(id){
+  const body={
+    name:document.getElementById('tf-name').value,
+    description:document.getElementById('tf-desc').value,
+    price:parseFloat(document.getElementById('tf-price').value),
+    durationDays:parseInt(document.getElementById('tf-days').value),
+    maxAccounts:parseInt(document.getElementById('tf-acc').value),
+    maxGroups:parseInt(document.getElementById('tf-grp').value),
+    postsPerDay:parseInt(document.getElementById('tf-ppd').value),
+    postIntervalMinutes:parseInt(document.getElementById('tf-int').value),
+    sortOrder:parseInt(document.getElementById('tf-sort').value)||0,
+    isRecommended:document.getElementById('tf-recommended').checked,
+    isActive:document.getElementById('tf-active').checked,
+  };
+  try{
+    if(id) await PUT(`/tariffs/${id}`,body);
+    else    await POST('/tariffs',body);
+    toast('Saqlandi!','success');
+    closeModalForce(); loadTariffs();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function deleteTariff(id){
+  if(!confirm('Tarifni o\'chirish (nofaol qilish)?')) return;
+  try{await DEL(`/tariffs/${id}`);toast('O\'chirildi','info');loadTariffs();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  GROUPS
+// ══════════════════════════════════════════════════════════
+let grpPage=1;
+async function pageGroups(){ await loadGroups(); }
+async function loadGroups(){
+  try{
+    const d=await GET(`/groups?page=${grpPage}&limit=50`);
+    const rows=d.groups.map(g=>`<tr>
+      <td><b>${esc(g.title||'—')}</b></td>
+      <td><code style="font-size:.75rem">${g.telegramGroupId}</code></td>
+      <td>${g.lastPostedAt?fmtDate(g.lastPostedAt):'—'}</td>
+      <td><span class="pill ${g.isActive?'pill-green':'pill-red'}">${g.isActive?'Faol':'Nofaol'}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="toggleGroup(${g.id})">${g.isActive?'O\'chir':'Yoq'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteGroup(${g.id})">🗑</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="addGroupModal()">+ Guruh qo'shish</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-head"><h2>Jami: ${d.total}</h2></div>
+      <table>
+        <thead><tr><th>Nomi</th><th>Guruh ID</th><th>Oxirgi post</th><th>Holat</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="5" class="empty">Guruhlar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+
+function addGroupModal(){
+  openModal(`<div class="modal-head"><h3>🌐 Guruh qo'shish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Guruh ID</label><input class="input" id="grp-id" placeholder="-1001234567890"></div>
+    <div class="form-row"><label>Nomi</label><input class="input" id="grp-title" placeholder="TruckBor Guruh"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveGroup()">Qo'shish</button>
+  </div>`);
+}
+async function saveGroup(){
+  const tid=parseInt(document.getElementById('grp-id').value);
+  const title=document.getElementById('grp-title').value;
+  if(!tid){toast('Guruh ID kiriting','error');return;}
+  try{await POST('/groups',{telegramGroupId:tid,title});toast('Qo\'shildi!','success');closeModalForce();loadGroups();}
+  catch(e){toast(e.message,'error')}
+}
+async function toggleGroup(id){
+  try{await PUT(`/groups/${id}/toggle`,{});toast('Yangilandi','info');loadGroups();}
+  catch(e){toast(e.message,'error')}
+}
+async function deleteGroup(id){
+  if(!confirm('Guruhni o\'chirish?'))return;
+  try{await DEL(`/groups/${id}`);toast('O\'chirildi','info');loadGroups();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  CARDS
+// ══════════════════════════════════════════════════════════
+async function pageCards(){ await loadCards(); }
+async function loadCards(){
+  try{
+    const cards=await GET('/cards');
+    const rows=cards.map(c=>`<tr>
+      <td><code>${esc(c.cardNumber)}</code></td>
+      <td>${esc(c.cardHolder)}</td>
+      <td>${esc(c.bankName||'—')}</td>
+      <td><span class="pill ${c.isActive?'pill-green':'pill-red'}">${c.isActive?'Faol':'Nofaol'}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="toggleCard(${c.id})">${c.isActive?'O\'chir':'Yoq'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCard(${c.id})">🗑</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="addCardModal()">+ Karta qo'shish</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Karta raqami</th><th>Egasi</th><th>Bank</th><th>Holat</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="5" class="empty">Kartalar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+function addCardModal(){
+  openModal(`<div class="modal-head"><h3>💳 Karta qo'shish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Karta raqami</label><input class="input" id="c-num" placeholder="8600 1234 5678 9012"></div>
+    <div class="form-row"><label>Egasi</label><input class="input" id="c-holder" placeholder="Azamat Karimov"></div>
+    <div class="form-row"><label>Bank (ixtiyoriy)</label><input class="input" id="c-bank" placeholder="Uzcard"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveCard()">Saqlash</button>
+  </div>`);
+}
+async function saveCard(){
+  const cn=document.getElementById('c-num').value;
+  const ch=document.getElementById('c-holder').value;
+  const bk=document.getElementById('c-bank').value||undefined;
+  if(!cn||!ch){toast('Karta raqami va egasini kiriting','error');return;}
+  try{await POST('/cards',{cardNumber:cn,cardHolder:ch,bankName:bk});toast('Karta qo\'shildi!','success');closeModalForce();loadCards();}
+  catch(e){toast(e.message,'error')}
+}
+async function toggleCard(id){
+  try{await PUT(`/cards/${id}/toggle`,{});loadCards();}
+  catch(e){toast(e.message,'error')}
+}
+async function deleteCard(id){
+  if(!confirm('Kartani o\'chirish?'))return;
+  try{await DEL(`/cards/${id}`);toast('O\'chirildi','info');loadCards();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  CHANNELS
+// ══════════════════════════════════════════════════════════
+async function pageChannels(){ await loadChannels(); }
+async function loadChannels(){
+  try{
+    const chs=await GET('/channels');
+    const rows=chs.map(c=>`<tr>
+      <td><b>${esc(c.title)}</b></td>
+      <td><code style="font-size:.75rem">${c.telegramChannelId}</code></td>
+      <td>${c.inviteLink?`<a href="${esc(c.inviteLink)}" target="_blank" style="font-size:.8rem">🔗 Link</a>`:'—'}</td>
+      <td><span class="pill ${c.isRequired?'pill-blue':'pill-yellow'}">${c.isRequired?'Majburiy':'Oddiy'}</span></td>
+      <td><span class="pill ${c.isActive?'pill-green':'pill-red'}">${c.isActive?'Faol':'Nofaol'}</span></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteChannel(${c.id})">🗑</button></td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="addChannelModal()">+ Kanal qo'shish</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Nomi</th><th>Kanal ID</th><th>Link</th><th>Turi</th><th>Holat</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="6" class="empty">Kanallar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+function addChannelModal(){
+  openModal(`<div class="modal-head"><h3>📢 Kanal qo'shish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Kanal ID</label><input class="input" id="ch-id" placeholder="-1001234567890"></div>
+    <div class="form-row"><label>Nomi</label><input class="input" id="ch-title" placeholder="TruckBor Kanal"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+      <input type="checkbox" id="ch-mandatory" checked>
+      <label for="ch-mandatory" style="cursor:pointer">Majburiy obuna</label>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveChannel()">Qo'shish</button>
+  </div>`);
+}
+async function saveChannel(){
+  const tid=parseInt(document.getElementById('ch-id').value);
+  const title=document.getElementById('ch-title').value;
+  const mandatory=document.getElementById('ch-mandatory').checked;
+  if(!tid){toast('Kanal ID kiriting','error');return;}
+  try{await POST('/channels',{telegramChannelId:tid,title,isMandatory:mandatory});toast('Kanal qo\'shildi!','success');closeModalForce();loadChannels();}
+  catch(e){toast(e.message,'error')}
+}
+async function deleteChannel(id){
+  if(!confirm('Kanalni o\'chirish?'))return;
+  try{await DEL(`/channels/${id}`);toast('O\'chirildi','info');loadChannels();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  SETTINGS
+// ══════════════════════════════════════════════════════════
+async function pageSettings(){
+  try{
+    const d=await GET('/settings');
+    const rows=d.settings.map(s=>`<tr>
+      <td><code>${esc(s.key)}</code></td>
+      <td id="sv-${esc(s.key)}">${esc(s.value||'')}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editSetting('${esc(s.key)}','${esc(s.value||'')}')">✏️</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div class="table-wrap">
+      <div class="table-head">
+        <h2>⚙️ Sozlamalar</h2>
+        <button class="btn btn-ghost btn-sm" onclick="addSettingModal()">+ Yangi</button>
+      </div>
+      <table>
+        <thead><tr><th>Kalit</th><th>Qiymat</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="3" class="empty">Sozlamalar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+function editSetting(key,val){
+  openModal(`<div class="modal-head"><h3>⚙️ ${esc(key)}</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Qiymat</label><input class="input" id="s-val" value="${esc(val)}"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveSetting('${esc(key)}')">Saqlash</button>
+  </div>`);
+}
+function addSettingModal(){
+  openModal(`<div class="modal-head"><h3>+ Yangi sozlama</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Kalit</label><input class="input" id="s-key" placeholder="post_channel_id"></div>
+    <div class="form-row"><label>Qiymat</label><input class="input" id="s-val" placeholder=""></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveNewSetting()">Saqlash</button>
+  </div>`);
+}
+async function saveNewSetting(){
+  const key=document.getElementById('s-key').value.trim();
+  const val=document.getElementById('s-val').value;
+  if(!key)return;
+  try{await PUT(`/settings/${encodeURIComponent(key)}`,{value:val});toast('Saqlandi!','success');closeModalForce();pageSettings();}
+  catch(e){toast(e.message,'error')}
+}
+async function saveSetting(key){
+  const val=document.getElementById('s-val').value;
+  try{await PUT(`/settings/${encodeURIComponent(key)}`,{value:val});toast('Saqlandi!','success');closeModalForce();pageSettings();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  BROADCAST
+// ══════════════════════════════════════════════════════════
+function pageBroadcast(){
+  document.getElementById('content').innerHTML=`
+  <div class="table-wrap" style="max-width:640px">
+    <div class="table-head"><h2>📬 Broadcast xabar</h2></div>
+    <div style="padding:20px">
+      <div class="form-row"><label>Xabar matni (HTML qo'llab quvvatlanadi)</label>
+        <textarea class="input" id="bc-text" rows="6" placeholder="&lt;b&gt;E'lon!&lt;/b&gt;\n\nBarcha foydalanuvchilarga..."></textarea>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-primary" onclick="sendBroadcast()">📬 Yuborish</button>
+        <button class="btn btn-ghost" onclick="previewBroadcast()">👁 Preview</button>
+      </div>
+      <div id="bc-result" style="margin-top:14px"></div>
+    </div>
+  </div>`;
+}
+function previewBroadcast(){
+  const text=document.getElementById('bc-text').value;
+  document.getElementById('bc-result').innerHTML=`
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:.9rem">
+    <div class="text-xs text-muted" style="margin-bottom:6px">Preview:</div>
+    ${text}
+  </div>`;
+}
+async function sendBroadcast(){
+  const text=document.getElementById('bc-text').value.trim();
+  if(!text){toast('Xabar kiriting','error');return;}
+  if(!confirm(`Barcha foydalanuvchilarga yuboriladi. Davom etasizmi?`))return;
+  const btn=event.target;
+  btn.disabled=true;btn.textContent='⏳ Yuborilmoqda...';
+  try{
+    const d=await POST('/broadcast',{text});
+    document.getElementById('bc-result').innerHTML=`
+    <div style="background:rgba(34,197,94,.1);border:1px solid var(--success);border-radius:8px;padding:14px">
+      ✅ <b>Muvaffaqiyatli:</b> ${d.sent} ta<br>
+      ❌ <b>Yuborilmadi:</b> ${d.failed} ta<br>
+      📊 <b>Jami:</b> ${d.total} ta
+    </div>`;
+    toast(`Broadcast tugadi: ${d.sent}/${d.total}`,'success');
+  }catch(e){toast(e.message,'error')}
+  btn.disabled=false;btn.textContent='📬 Yuborish';
+}
+
+// ══════════════════════════════════════════════════════════
+//  ADMINS
+// ══════════════════════════════════════════════════════════
+async function pageAdmins(){ await loadAdmins(); }
+async function loadAdmins(){
+  try{
+    const admins=await GET('/admins');
+    const rows=admins.map(a=>`<tr>
+      <td><b>${esc(a.fullName)}</b></td>
+      <td>${esc(a.username||'—')}</td>
+      <td><code style="font-size:.75rem">${a.telegramId}</code></td>
+      <td>${a.isSuper?'<span class="pill pill-blue">⭐ Super</span>':'<span class="pill">Admin</span>'}</td>
+      <td>${a.lastLoginAt?fmtDate(a.lastLoginAt):'Hech qachon'}</td>
+      <td>${fmtDate(a.createdAt)}</td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="addAdminModal()">+ Admin qo'shish</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Ism</th><th>Username</th><th>TG ID</th><th>Daraja</th><th>Oxirgi kirish</th><th>Qo'shildi</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="6" class="empty">Adminlar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+function addAdminModal(){
+  openModal(`<div class="modal-head"><h3>👑 Yangi admin</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>To'liq ismi</label><input class="input" id="adm-name" placeholder="Azamat Karimov"></div>
+    <div class="form-row"><label>Username</label><input class="input" id="adm-user" placeholder="azamat_admin"></div>
+    <div class="form-row"><label>Parol</label><input class="input" type="password" id="adm-pass" placeholder="••••••••"></div>
+    <div class="form-row"><label>Telegram ID</label><input class="input" id="adm-tgid" type="number" placeholder="123456789"></div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="adm-super"> ⭐ Super Admin
+    </label>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveAdmin()">Yaratish</button>
+  </div>`);
+}
+async function saveAdmin(){
+  const body={
+    fullName:document.getElementById('adm-name').value,
+    username:document.getElementById('adm-user').value,
+    password:document.getElementById('adm-pass').value,
+    telegramId:parseInt(document.getElementById('adm-tgid').value)||0,
+    isSuper:document.getElementById('adm-super').checked,
+    canManageUsers:true,canManagePayments:true,canManageTariffs:true,
+    canManageGroups:true,canManageCards:true,canManageChannels:true,
+    canBroadcast:true,canManageAdmins:false,canManageSettings:true,
+    canManageVirtual:true,canManagePremium:true,
+  };
+  try{await POST('/admins',body);toast('Admin yaratildi!','success');closeModalForce();loadAdmins();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════════
+function fmt(n){return Math.round(n||0).toLocaleString('uz-UZ')+' so\'m'}
+function fmtDate(d){if(!d)return'—';const dt=new Date(d);return dt.toLocaleDateString('ru-RU')+' '+dt.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function statusPill(s){
+  const m={0:'pill-yellow',1:'pill-green',2:'pill-red'};
+  const t={0:'⏳ Kutmoqda',1:'✅ Tasdiqlandi',2:'❌ Rad etildi'};
+  return `<span class="pill ${m[s]||''}">${t[s]||s}</span>`;
+}
+function paginator(total,limit,page,pageVar,fn){
+  const pages=Math.ceil(total/limit);
+  if(pages<=1)return'';
+  let btns='';
+  for(let i=1;i<=Math.min(pages,8);i++){
+    btns+=`<button class="page-btn${i===page?' active':''}" onclick="${pageVar}=${i};${fn}()">${i}</button>`;
+  }
+  return `<div class="pagination">${btns}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  PDF EXPORT
+// ══════════════════════════════════════════════════════════
+async function exportUsersPdf(){
+  try{
+    toast('PDF tayyorlanmoqda...','info');
+    const d=await GET(`/users?search=${encodeURIComponent(usersSearch)}&page=1&limit=1000`);
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    // Header
+    doc.setFillColor(13,18,37);
+    doc.rect(0,0,297,20,'F');
+    doc.setTextColor(55,138,221);
+    doc.setFontSize(14);doc.setFont('helvetica','bold');
+    doc.text('TruckBor — Foydalanuvchilar ro\'yxati',14,13);
+    doc.setTextColor(140,146,164);
+    doc.setFontSize(8);
+    const now=new Date().toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'});
+    doc.text(`Sana: ${now} (Toshkent)`,200,13);
+
+    const rows=d.users.map(u=>[
+      u.fullName||'—',
+      u.phoneNumber||'—',
+      String(u.telegramId),
+      `${Math.round(u.balance||0).toLocaleString()} so'm`,
+      String(u.totalPosts||0),
+      u.hasActiveSub?'VIP ✅':'Free',
+      u.isBlocked?'Bloklangan':'Faol',
+      u.createdAt?new Date(u.createdAt).toLocaleDateString('ru-RU'):'—',
+    ]);
+
+    doc.autoTable({
+      startY:24,
+      head:[['Ism','Telefon','TG ID','Balans','E\'lonlar','Tarif','Holat','Sana']],
+      body:rows,
+      styles:{fontSize:7,cellPadding:2,textColor:[232,234,246],fillColor:[17,24,39]},
+      headStyles:{fillColor:[55,138,221],textColor:[255,255,255],fontStyle:'bold'},
+      alternateRowStyles:{fillColor:[13,18,37]},
+      tableLineColor:[26,37,64],tableLineWidth:0.1,
+    });
+
+    doc.setTextColor(140,146,164);doc.setFontSize(7);
+    const pages=doc.internal.getNumberOfPages();
+    for(let i=1;i<=pages;i++){
+      doc.setPage(i);
+      doc.text(`Sahifa ${i}/${pages} | TruckBor Admin Panel`,14,doc.internal.pageSize.height-5);
+    }
+    doc.save(`truckbor-users-${Date.now()}.pdf`);
+    toast(`${d.users.length} ta foydalanuvchi eksport qilindi!`,'success');
+  }catch(e){toast('PDF xatosi: '+e.message,'error');console.error(e);}
+}
+
+async function exportPaymentsPdf(){
+  try{
+    toast('PDF tayyorlanmoqda...','info');
+    const s=payStatus!==''?`&status=${payStatus}`:'';
+    const d=await GET(`/payments?page=1&limit=1000${s}`);
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    // Header
+    doc.setFillColor(13,18,37);
+    doc.rect(0,0,297,20,'F');
+    doc.setTextColor(55,138,221);
+    doc.setFontSize(14);doc.setFont('helvetica','bold');
+    doc.text('TruckBor — To\'lovlar hisoboti',14,13);
+    doc.setTextColor(140,146,164);doc.setFontSize(8);
+    const now=new Date().toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'});
+    doc.text(`Sana: ${now} (Toshkent)`,200,13);
+
+    const statusLabel={0:'Kutmoqda',1:'Tasdiqlandi',2:'Rad etildi'};
+    const rows=d.payments.map(p=>[
+      p.userName||'—',
+      p.userPhone||'—',
+      p.tariff||'—',
+      `${Math.round(p.amount||0).toLocaleString()} so'm`,
+      statusLabel[p.status]||String(p.status),
+      p.createdAt?new Date(p.createdAt).toLocaleDateString('ru-RU'):'—',
+    ]);
+
+    // Summary row
+    const totalSum=d.payments.reduce((a,p)=>a+(p.status===1?p.amount:0),0);
+
+    doc.autoTable({
+      startY:24,
+      head:[['Foydalanuvchi','Telefon','Tarif','Summa','Holat','Sana']],
+      body:rows,
+      foot:[['','','Jami tasdiqlangan:',`${Math.round(totalSum).toLocaleString()} so'm`,'','']],
+      styles:{fontSize:7,cellPadding:2,textColor:[232,234,246],fillColor:[17,24,39]},
+      headStyles:{fillColor:[55,138,221],textColor:[255,255,255],fontStyle:'bold'},
+      footStyles:{fillColor:[26,37,64],textColor:[55,138,221],fontStyle:'bold'},
+      alternateRowStyles:{fillColor:[13,18,37]},
+      tableLineColor:[26,37,64],tableLineWidth:0.1,
+    });
+
+    doc.setTextColor(140,146,164);doc.setFontSize(7);
+    const pages=doc.internal.getNumberOfPages();
+    for(let i=1;i<=pages;i++){
+      doc.setPage(i);
+      doc.text(`Sahifa ${i}/${pages} | TruckBor Admin Panel`,14,doc.internal.pageSize.height-5);
+    }
+    doc.save(`truckbor-payments-${Date.now()}.pdf`);
+    toast(`${d.payments.length} ta to'lov eksport qilindi!`,'success');
+  }catch(e){toast('PDF xatosi: '+e.message,'error');console.error(e);}
+}
+
+// ══════════════════════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════════════════════
+if(TOKEN){
+  // Verify token then launch
+  GET('/auth/me').then(me=>{
+    ME=me;
+    localStorage.setItem('admin_me',JSON.stringify(ME));
+    initApp();
+  }).catch(()=>{
+    TOKEN='';
+    localStorage.removeItem('admin_token');
+  });
+}
+</script>
+</body>
+</html>

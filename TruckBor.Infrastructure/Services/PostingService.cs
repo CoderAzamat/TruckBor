@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types.Enums;
 using TruckBor.Application.Interfaces;
 using TruckBor.Domain.Enums;
@@ -72,6 +73,7 @@ public class PostingService : IPostingService
         catch { /* progress is non-critical */ }
 
         // ── Posting loop ─────────────────────────────────────────────────
+        var spamCount = 0;
         foreach (var group in groups)
         {
             if (ct.IsCancellationRequested) break;
@@ -81,6 +83,7 @@ public class PostingService : IPostingService
                     parseMode: ParseMode.Html, cancellationToken: ct);
                 group.LastPostedAt = DateTime.UtcNow;
                 posted++;
+                spamCount = 0; // reset on success
 
                 // Update progress
                 if (progressMsgId.HasValue && posted % progressEvery == 0)
@@ -97,6 +100,35 @@ public class PostingService : IPostingService
                 }
 
                 await Task.Delay(Math.Min(delayMs, 2000), ct);
+            }
+            catch (ApiRequestException apiEx)
+            {
+                // Kicked/blocked from group — deactivate it
+                if (apiEx.ErrorCode is 403 or 400)
+                {
+                    group.IsActive = false;
+                    _logger.LogInformation("Group {Id} deactivated (bot removed/blocked)", group.TelegramGroupId);
+                }
+                else if (apiEx.Message.Contains("Too Many Requests") || apiEx.ErrorCode == 429)
+                {
+                    spamCount++;
+                    _logger.LogWarning("Spam/flood on group {Id}, count={C}", group.TelegramGroupId, spamCount);
+                    if (spamCount >= 3)
+                    {
+                        // Notify admin about spam detection
+                        await NotifySpamDetectedAsync(user, spamCount, ct);
+                        await Task.Delay(30_000, ct); // wait 30s after flood
+                        spamCount = 0;
+                    }
+                    else
+                    {
+                        await Task.Delay(5_000, ct);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug(apiEx, "Group {GroupId} post failed", group.TelegramGroupId);
+                }
             }
             catch (Exception ex)
             {
@@ -149,6 +181,23 @@ public class PostingService : IPostingService
         {
             _logger.LogWarning(ex, "Channel post failed for post {PostId}", postId);
         }
+    }
+
+    private async Task NotifySpamDetectedAsync(
+        Domain.Entities.User user, int count, CancellationToken ct)
+    {
+        try
+        {
+            await _bot.SendMessage(
+                user.TelegramId,
+                $"⚠️ <b>Spam aniqlandi!</b>\n\n" +
+                $"📊 {count} ta guruhda xatolik yuz berdi.\n" +
+                "⏳ 30 soniya kutilmoqda...\n\n" +
+                "ℹ️ @SpamBot ga murojaat qilib blokdan chiqishingiz mumkin.",
+                parseMode: ParseMode.Html,
+                cancellationToken: ct);
+        }
+        catch { }
     }
 
     public async Task HandleSpamAsync(long telegramAccountId, CancellationToken ct = default)
