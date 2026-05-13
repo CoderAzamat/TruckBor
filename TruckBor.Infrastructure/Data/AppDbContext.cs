@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using TruckBor.Application.Interfaces;
 using TruckBor.Domain.Entities;
 
@@ -20,9 +20,38 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
 
+    // New entities
+    public DbSet<PaymentProvider> PaymentProviders => Set<PaymentProvider>();
+    public DbSet<BalanceTransaction> BalanceTransactions => Set<BalanceTransaction>();
+    public DbSet<VirtualNumberOrder> VirtualNumberOrders => Set<VirtualNumberOrder>();
+    public DbSet<PremiumOrder> PremiumOrders => Set<PremiumOrder>();
+    public DbSet<VideoTutorial> VideoTutorials => Set<VideoTutorial>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // BalanceTransaction indexes
+        modelBuilder.Entity<BalanceTransaction>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.CreatedAt);
+        });
+
+        // VirtualNumberOrder indexes
+        modelBuilder.Entity<VirtualNumberOrder>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.ActivationId);
+        });
+
+        // PremiumOrder indexes
+        modelBuilder.Entity<PremiumOrder>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.Status);
+        });
+
         base.OnModelCreating(modelBuilder);
     }
 

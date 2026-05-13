@@ -41,7 +41,7 @@ public class PostingService : IPostingService
 
         if (sub?.Tariff is null) return;
 
-        var tariff = sub.Tariff;
+        var tariff  = sub.Tariff;
         var caption = BuildCaption(post, user);
 
         var groups = await _db.Groups
@@ -52,9 +52,26 @@ public class PostingService : IPostingService
 
         if (!groups.Any()) return;
 
-        var delayMs = Math.Max(tariff.PostIntervalMinutes * 60_000 / Math.Max(groups.Count, 1), 500);
-        var posted = 0;
+        var total    = groups.Count;
+        var delayMs  = Math.Max(tariff.PostIntervalMinutes * 60_000 / Math.Max(total, 1), 500);
+        var posted   = 0;
 
+        // ── Progress message ─────────────────────────────────────────────
+        int? progressMsgId = null;
+        var  progressEvery = Math.Max(total / 5, 1); // update ~5 times total
+
+        try
+        {
+            var initMsg = await _bot.SendMessage(
+                user.TelegramId,
+                $"📤 <b>E'lon tarqatilmoqda...</b>\n" +
+                $"⏳ 0/{total} guruhga yuborildi",
+                parseMode: ParseMode.Html, cancellationToken: ct);
+            progressMsgId = initMsg.MessageId;
+        }
+        catch { /* progress is non-critical */ }
+
+        // ── Posting loop ─────────────────────────────────────────────────
         foreach (var group in groups)
         {
             if (ct.IsCancellationRequested) break;
@@ -64,6 +81,21 @@ public class PostingService : IPostingService
                     parseMode: ParseMode.Html, cancellationToken: ct);
                 group.LastPostedAt = DateTime.UtcNow;
                 posted++;
+
+                // Update progress
+                if (progressMsgId.HasValue && posted % progressEvery == 0)
+                {
+                    try
+                    {
+                        await _bot.EditMessageText(
+                            user.TelegramId, progressMsgId.Value,
+                            $"📤 <b>E'lon tarqatilmoqda...</b>\n" +
+                            $"✅ {posted}/{total} guruhga yuborildi",
+                            parseMode: ParseMode.Html, cancellationToken: ct);
+                    }
+                    catch { }
+                }
+
                 await Task.Delay(Math.Min(delayMs, 2000), ct);
             }
             catch (Exception ex)
@@ -75,8 +107,23 @@ public class PostingService : IPostingService
         if (posted > 0)
             await _db.SaveChangesAsync(ct);
 
+        // ── Final status ─────────────────────────────────────────────────
+        if (progressMsgId.HasValue)
+        {
+            try
+            {
+                await _bot.EditMessageText(
+                    user.TelegramId, progressMsgId.Value,
+                    $"✅ <b>E'lon muvaffaqiyatli tarqatildi!</b>\n" +
+                    $"📤 {posted}/{total} guruhga yuborildi\n" +
+                    $"#TruckBor #{post.FromCity?.Replace(" ", "")} #{post.ToCity?.Replace(" ", "")}",
+                    parseMode: ParseMode.Html, cancellationToken: ct);
+            }
+            catch { }
+        }
+
         _logger.LogInformation("Post {PostId} sent to {Count}/{Total} groups",
-            postId, posted, groups.Count);
+            postId, posted, total);
     }
 
     public async Task PostToChannelAsync(long postId, CancellationToken ct = default)

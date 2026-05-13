@@ -64,6 +64,7 @@ public enum UserState
     // Accounts
     WaitingAccountPhone,
     WaitingAccountCode,
+    WaitingAccount2FA,
     WaitingVirtualNumberService,
 
     // Balance & Premium

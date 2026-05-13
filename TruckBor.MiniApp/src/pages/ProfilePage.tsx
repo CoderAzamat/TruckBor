@@ -16,9 +16,11 @@ export default function ProfilePage({ user }: Props) {
   const { logout } = useAuth();
 
   const localeSegments = [
-    { value: 'uz' as const, label: "O'z" },
-    { value: 'ru' as const, label: 'Рус' },
-    { value: 'en' as const, label: 'Eng' },
+    { value: 'uz'  as const, label: "O'z" },
+    { value: 'uzc' as const, label: 'Ўзб' },
+    { value: 'ru'  as const, label: 'Рус' },
+    { value: 'en'  as const, label: 'Eng' },
+    { value: 'tr'  as const, label: 'Tr'  },
   ];
 
   const themeSegments = [

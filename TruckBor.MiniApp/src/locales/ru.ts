@@ -66,6 +66,9 @@ export const ru: Record<string, string> = {
   tariffs: 'Тарифы',
   buy_tariff: 'Купить',
   payment_cards: 'Платёжные карты',
+  virtual_numbers: 'Виртуальные номера',
+  tg_premium: 'TG Premium',
+  balance_topup: 'Пополнить баланс',
 
   // Profile
   language: 'Язык',
@@ -77,4 +80,6 @@ export const ru: Record<string, string> = {
   channel: 'Канал',
   logout: 'Выйти',
   not_logged_in: 'Вы не авторизованы',
+  balance: 'Баланс',
+  total_posts: 'Всего объявлений',
 };

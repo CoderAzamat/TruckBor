@@ -8,6 +8,11 @@ public class AdminUser : BaseEntity
     public string FullName { get; set; } = string.Empty;
     public bool IsSuper { get; set; }
 
+    // Web panel login
+    public string? Username { get; set; }
+    public string? PasswordHash { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+
     // Ruxsatlar
     public bool CanManageUsers { get; set; } = true;
     public bool CanManagePayments { get; set; } = true;
@@ -19,4 +24,7 @@ public class AdminUser : BaseEntity
     public bool CanViewStatistics { get; set; } = true;
     public bool CanManageAdmins { get; set; }
     public bool CanManageSettings { get; set; }
+    public bool CanManageVirtual { get; set; }
+    public bool CanManagePremium { get; set; }
+    public bool CanManageVideos { get; set; }
 }

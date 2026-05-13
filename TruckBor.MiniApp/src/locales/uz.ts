@@ -66,6 +66,9 @@ export const uz: Record<string, string> = {
   tariffs: 'Tariflar',
   buy_tariff: 'Sotib olish',
   payment_cards: "To'lov kartalari",
+  virtual_numbers: 'Virtual raqamlar',
+  tg_premium: 'TG Premium',
+  balance_topup: 'Balans to\'ldirish',
 
   // Profile
   language: 'Til',
@@ -77,4 +80,6 @@ export const uz: Record<string, string> = {
   channel: 'Kanal',
   logout: 'Chiqish',
   not_logged_in: 'Hisobga kirmadingiz',
+  balance: 'Balans',
+  total_posts: "Jami e'lonlar",
 };

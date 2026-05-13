@@ -48,6 +48,9 @@ namespace TruckBor.Infrastructure.Migrations
                     b.Property<bool>("CanManagePayments")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("CanManagePremium")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("CanManageSettings")
                         .HasColumnType("boolean");
 
@@ -55,6 +58,12 @@ namespace TruckBor.Infrastructure.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("CanManageUsers")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanManageVideos")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanManageVirtual")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("CanViewStatistics")
@@ -70,15 +79,74 @@ namespace TruckBor.Infrastructure.Migrations
                     b.Property<bool>("IsSuper")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
                     b.Property<long>("TelegramId")
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Username")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.ToTable("AdminUsers");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.BalanceTransaction", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("BalanceAfter")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("BalanceBefore")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("PaymentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PerformedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ReasonCode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("PaymentId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("BalanceTransactions");
                 });
 
             modelBuilder.Entity("TruckBor.Domain.Entities.Card", b =>
@@ -232,15 +300,24 @@ namespace TruckBor.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ProviderCode")
+                        .HasColumnType("text");
+
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("StarsAmount")
+                        .HasColumnType("integer");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
                     b.Property<long?>("TariffId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("TransactionId")
+                        .HasColumnType("text");
 
                     b.Property<int>("Type")
                         .HasColumnType("integer");
@@ -258,6 +335,73 @@ namespace TruckBor.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Payments");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.PaymentProvider", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AdditionalConfig")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ApiKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("CommissionPercent")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("IconEmoji")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("MaxAmount")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("MerchantId")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("MinAmount")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("SecretKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ServiceId")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WebhookSecret")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PaymentProviders");
                 });
 
             modelBuilder.Entity("TruckBor.Domain.Entities.Post", b =>
@@ -354,6 +498,58 @@ namespace TruckBor.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Posts");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.PremiumOrder", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AdminNote")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("AmountPaid")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MonthCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("ProcessedByAdminId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetUsername")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PremiumOrders");
                 });
 
             modelBuilder.Entity("TruckBor.Domain.Entities.Setting", b =>
@@ -599,6 +795,125 @@ namespace TruckBor.Infrastructure.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("TruckBor.Domain.Entities.VideoTutorial", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ServiceKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TelegramFileId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TitleRu")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VideoUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("VideoTutorials");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.VirtualNumberOrder", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActivationId")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("AmountPaid")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("CountryCode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SmsCode")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SmsReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActivationId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("VirtualNumberOrders");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.BalanceTransaction", b =>
+                {
+                    b.HasOne("TruckBor.Domain.Entities.Payment", "Payment")
+                        .WithMany("BalanceTransactions")
+                        .HasForeignKey("PaymentId");
+
+                    b.HasOne("TruckBor.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Payment");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("TruckBor.Domain.Entities.Payment", b =>
                 {
                     b.HasOne("TruckBor.Domain.Entities.Tariff", "Tariff")
@@ -620,6 +935,17 @@ namespace TruckBor.Infrastructure.Migrations
                 {
                     b.HasOne("TruckBor.Domain.Entities.User", "User")
                         .WithMany("Posts")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.PremiumOrder", b =>
+                {
+                    b.HasOne("TruckBor.Domain.Entities.User", "User")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -655,6 +981,22 @@ namespace TruckBor.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.VirtualNumberOrder", b =>
+                {
+                    b.HasOne("TruckBor.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TruckBor.Domain.Entities.Payment", b =>
+                {
+                    b.Navigation("BalanceTransactions");
                 });
 
             modelBuilder.Entity("TruckBor.Domain.Entities.User", b =>

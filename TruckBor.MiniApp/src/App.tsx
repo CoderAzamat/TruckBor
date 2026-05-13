@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTelegram } from './hooks/useTelegram';
 import { useAuth } from './store/auth';
 import { useTheme } from './store/theme';
@@ -20,18 +20,18 @@ export default function App() {
   const { applyFromTelegram } = useTheme();
   const [booting, setBooting] = useState(true);
 
-  /* ── apply Telegram theme ── */
+  /* ── Apply Telegram theme ── */
   useEffect(() => {
     applyFromTelegram(colorScheme);
   }, [colorScheme, applyFromTelegram]);
 
-  /* ── Telegram WebApp is already set up by useTelegram hook ── */
   useEffect(() => {
     if (!webApp) return;
-    // Additional setup if needed
+    webApp.expand?.();
+    webApp.enableClosingConfirmation?.();
   }, [webApp]);
 
-  /* ── auth ── */
+  /* ── Auth ── */
   useEffect(() => {
     if (!initData) { setBooting(false); return; }
     authApi.telegramAuth(initData)
@@ -40,7 +40,7 @@ export default function App() {
       .finally(() => setBooting(false));
   }, [initData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (booting) return <Splash />;
+  if (booting) return <SplashScreen />;
 
   return (
     <div className="page" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom,0) + 84px)' }}>
@@ -56,14 +56,79 @@ export default function App() {
   );
 }
 
-function Splash() {
+function SplashScreen() {
   return (
-    <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--bg-base)' }}>
-      <div className="flex flex-col items-center gap-4">
-        <div className="text-5xl">🚛</div>
-        <div className="text-lg font-semibold" style={{ color: 'var(--text-secondary)' }}>TruckBor</div>
-        <div className="skeleton w-32 h-1 mt-2" />
-      </div>
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'var(--bg-base)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 20,
+      }}
+    >
+      {/* Glow circle */}
+      <motion.div
+        style={{
+          position: 'absolute',
+          width: 300, height: 300,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(55,138,221,0.18) 0%, transparent 70%)',
+        }}
+        animate={{ scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
+        transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+      />
+
+      {/* Truck icon */}
+      <motion.div
+        initial={{ scale: 0.5, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.1 }}
+        style={{ fontSize: 72, lineHeight: 1, position: 'relative' }}
+      >
+        🚛
+      </motion.div>
+
+      {/* Title */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.35, duration: 0.4 }}
+        style={{ textAlign: 'center' }}
+      >
+        <div style={{
+          fontSize: 28, fontWeight: 800, letterSpacing: -0.5,
+          background: 'linear-gradient(135deg, #378ADD, #4facee)',
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        }}>
+          TruckBor
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>
+          Yuk tashish platformasi
+        </div>
+      </motion.div>
+
+      {/* Progress bar */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.6 }}
+        style={{
+          width: 120, height: 3,
+          background: 'var(--border-subtle)',
+          borderRadius: 999, overflow: 'hidden',
+        }}
+      >
+        <motion.div
+          style={{
+            height: '100%',
+            background: 'linear-gradient(90deg, #378ADD, #4facee)',
+            borderRadius: 999,
+          }}
+          initial={{ width: '0%' }}
+          animate={{ width: '100%' }}
+          transition={{ duration: 1.2, ease: 'easeInOut', delay: 0.7 }}
+        />
+      </motion.div>
     </div>
   );
 }

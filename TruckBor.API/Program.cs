@@ -50,7 +50,10 @@ builder.Services
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!))
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(opt =>
+{
+    opt.AddPolicy("AdminOnly", p => p.RequireClaim("role", "admin"));
+});
 
 // ── CORS ──────────────────────────────────────────────────
 builder.Services.AddCors(opt => opt.AddPolicy("default", b => b

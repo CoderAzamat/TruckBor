@@ -30,14 +30,17 @@ export function formatPhone(phone: string): string {
   return phone;
 }
 
-export function timeAgo(date: string | Date, locale: 'uz' | 'ru' | 'en' = 'uz'): string {
+export function timeAgo(date: string | Date, locale: string = 'uz'): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   const diff = (Date.now() - d.getTime()) / 1000;
-  const L = {
-    uz: { now: "hozir", m: "daq", h: "soat", d: "kun", ago: '' },
-    ru: { now: "сейчас", m: "мин", h: "ч", d: "дн", ago: 'назад' },
-    en: { now: "now", m: "min", h: "h", d: "d", ago: 'ago' }
-  }[locale];
+  const dict: Record<string, { now: string; m: string; h: string; d: string; ago: string }> = {
+    uz:  { now: "hozir",   m: "daq",  h: "soat", d: "kun", ago: '' },
+    uzc: { now: "ҳозир",   m: "дақ",  h: "соат", d: "кун", ago: '' },
+    ru:  { now: "сейчас",  m: "мин",  h: "ч",    d: "дн",  ago: 'назад' },
+    en:  { now: "now",     m: "min",  h: "h",    d: "d",   ago: 'ago' },
+    tr:  { now: "şimdi",   m: "dk",   h: "sa",   d: "gün", ago: 'önce' },
+  };
+  const L = dict[locale] ?? dict['uz'];
 
   const sfx = (s: string) => L.ago ? `${s} ${L.ago}` : s;
   if (diff < 60) return L.now;

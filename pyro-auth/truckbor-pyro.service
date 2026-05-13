@@ -1,0 +1,18 @@
+[Unit]
+Description=TruckBor Pyrogram Auth Service
+After=network.target
+
+[Service]
+WorkingDirectory=/var/www/truckbor/pyro-auth
+ExecStart=/usr/bin/python3 -m gunicorn -w 1 -b 0.0.0.0:5050 main:app
+Restart=always
+RestartSec=5
+SyslogIdentifier=truckbor-pyro
+User=www-data
+Environment=TG_API_ID=YOUR_API_ID
+Environment=TG_API_HASH=YOUR_API_HASH
+Environment=SESSION_DIR=/var/www/truckbor/sessions
+Environment=PORT=5050
+
+[Install]
+WantedBy=multi-user.target

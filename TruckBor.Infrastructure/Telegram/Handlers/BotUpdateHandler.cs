@@ -23,6 +23,7 @@ public class BotUpdateHandler
     private readonly ICacheService      _cache;
     private readonly IPostingService    _posting;
     private readonly IAiPostService     _ai;
+    private readonly ITelegramSmsAuthService _smsAuth;
     private readonly IConfiguration    _config;
     private readonly ILogger<BotUpdateHandler> _logger;
     private readonly long[]             _adminIds;
@@ -30,12 +31,12 @@ public class BotUpdateHandler
     public BotUpdateHandler(
         ITelegramBotClient bot, ITelegramService tg, IUserStateService state,
         ILocalizationService loc, IAppDbContext db, ICacheService cache,
-        IPostingService posting, IAiPostService ai, IConfiguration config,
-        ILogger<BotUpdateHandler> logger)
+        IPostingService posting, IAiPostService ai, ITelegramSmsAuthService smsAuth,
+        IConfiguration config, ILogger<BotUpdateHandler> logger)
     {
         _bot = bot; _tg = tg; _state = state; _loc = loc;
         _db = db; _cache = cache; _posting = posting; _ai = ai;
-        _config = config; _logger = logger;
+        _smsAuth = smsAuth; _config = config; _logger = logger;
         _adminIds = config.GetSection("Bot:AdminIds").Get<long[]>() ?? Array.Empty<long>();
     }
 
@@ -451,9 +452,17 @@ public class BotUpdateHandler
             case UserState.WaitingAiPostConfirm:
                 await HandleAiPostConfirmAsync(tgId, chatId, text, msg, user, ct); break;
 
-            // ── Account ─────────────────────────────────────────────────
+            // ── Balance topup receipt ────────────────────────────────────
+            case UserState.WaitingBalanceTopup:
+                await HandleBalanceTopupReceiptAsync(msg, user, ct); break;
+
+            // ── Account SMS flow ─────────────────────────────────────────
             case UserState.WaitingAccountPhone:
                 await HandleAccountPhoneAsync(tgId, chatId, msg, user, ct); break;
+            case UserState.WaitingAccountCode:
+                await HandleAccountCodeAsync(tgId, chatId, text, user, ct); break;
+            case UserState.WaitingAccount2FA:
+                await HandleAccount2FaAsync(tgId, chatId, text, user, ct); break;
 
             // ── Search ──────────────────────────────────────────────────
             case UserState.WaitingSearchFrom:
@@ -582,14 +591,14 @@ public class BotUpdateHandler
 
         var draft = new PostDraft
         {
-            Type = result.PostType,
-            From = result.FromCity ?? "",
-            To = result.ToCity ?? "",
-            CargoType = result.CargoType,
-            Weight = result.Weight,
-            VehicleType = result.VehicleType,
-            Price = result.Price,
-            Phone = result.ContactPhone ?? user.PhoneNumber ?? "",
+            Type        = result.PostType,
+            From        = result.FromCity ?? "",
+            To          = result.ToCity ?? "",
+            CargoType   = result.CargoType   ?? "",
+            Weight      = result.Weight      ?? "",
+            VehicleType = result.VehicleType ?? "",
+            Price       = result.Price       ?? "",
+            Phone       = result.ContactPhone ?? user.PhoneNumber ?? "",
         };
 
         await _state.SetStateAsync(tgId, UserState.WaitingAiPostConfirm, draft, ct);
@@ -944,6 +953,8 @@ public class BotUpdateHandler
             lines.AppendLine($"👤 {post.User.FullName}");
 
         lines.AppendLine($"🕐 {post.CreatedAt:dd.MM.yyyy HH:mm}");
+        lines.AppendLine();
+        lines.AppendLine("📱 <i>TruckBor</i>");
         return lines.ToString().TrimEnd();
     }
 
@@ -2264,12 +2275,145 @@ public class BotUpdateHandler
         }
         if (!phone.StartsWith("+")) phone = "+" + phone;
 
+        if (await _db.TelegramAccounts.AnyAsync(x => x.UserId == user.Id && x.PhoneNumber == phone, ct))
+        {
+            await _state.ClearStateAsync(tgId, ct);
+            await _tg.SendMessageAsync(chatId,
+                "⚠️ Bu raqam allaqachon qo'shilgan.", KB.MainMenu(user.Language), ct);
+            return;
+        }
+
+        // ── Try Pyrogram SMS auth ────────────────────────────────────────
+        await _tg.SendMessageAsync(chatId,
+            "⏳ SMS kod yuborilmoqda...", ct: ct);
+
+        var smsResult = await _smsAuth.SendCodeAsync(phone, ct);
+
+        if (!smsResult.Success)
+        {
+            _logger.LogWarning("SendCode failed for {Phone}: {Error}", phone, smsResult.Error);
+
+            // Pyrogram not available — save account directly (manual verify later)
+            await _state.ClearStateAsync(tgId, ct);
+            _db.TelegramAccounts.Add(new Domain.Entities.TelegramAccount
+            {
+                UserId      = user.Id,
+                PhoneNumber = phone,
+                IsActive    = false,   // inactive until properly verified
+            });
+            await _db.SaveChangesAsync(ct);
+            await _tg.SendMessageAsync(chatId,
+                $"📱 <b>Akkaunt ro'yxatga olindi</b>\n\n" +
+                $"📞 {phone}\n\n" +
+                "⏳ Admin tomonidan faollashtirilaadi.\n" +
+                "📞 @TruckBorAdmin ga murojaat qiling.",
+                KB.MainMenu(user.Language), ct);
+            return;
+        }
+
+        // SMS sent — wait for code
+        // Store: phone|phoneCodeHash
+        await _state.SetStateAsync(tgId, UserState.WaitingAccountCode,
+            $"{phone}|{smsResult.PhoneCodeHash}", ct);
+
+        await _tg.SendMessageAsync(chatId,
+            "📨 <b>SMS kod yuborildi!</b>\n\n" +
+            $"📞 {phone}\n\n" +
+            "Telegramdan kelgan <b>5 xonali kodni</b> kiriting:\n" +
+            "<code>12345</code>",
+            KB.CancelMenu(user.Language), ct);
+    }
+
+    // ── Step 2: SMS code entry ────────────────────────────────────────────
+    private async Task HandleAccountCodeAsync(long tgId, long chatId,
+        string code, Domain.Entities.User user, CancellationToken ct)
+    {
+        code = code.Trim().Replace(" ", "").Replace("-", "");
+        if (code.Length < 4 || !code.All(char.IsDigit))
+        {
+            await _tg.SendMessageAsync(chatId,
+                "❌ Noto'g'ri format. Faqat raqamlardan iborat kodni yuboring:\n<code>12345</code>",
+                ct: ct);
+            return;
+        }
+
+        var raw = await _state.GetStateDataAsync<string>(tgId, ct) ?? "";
+        var parts = raw.Split('|');
+        var phone = parts.Length > 0 ? parts[0] : "";
+        var hash  = parts.Length > 1 ? parts[1] : "";
+
+        if (string.IsNullOrEmpty(phone))
+        {
+            await _state.ClearStateAsync(tgId, ct);
+            await _tg.SendMessageAsync(chatId, "❌ Sessiya tugadi. Qaytadan urinib ko'ring.",
+                KB.MainMenu(user.Language), ct);
+            return;
+        }
+
+        await _tg.SendMessageAsync(chatId, "⏳ Tekshirilmoqda...", ct: ct);
+        var result = await _smsAuth.VerifyCodeAsync(phone, code, hash, ct);
+
+        if (result.Needs2FA)
+        {
+            // Keep phone|hash in state for 2FA step
+            await _state.SetStateAsync(tgId, UserState.WaitingAccount2FA, raw, ct);
+            await _tg.SendMessageAsync(chatId,
+                "🔐 <b>Ikki bosqichli himoya (2FA)</b>\n\n" +
+                "Telegram parolingizni kiriting:",
+                KB.CancelMenu(user.Language), ct);
+            return;
+        }
+
+        if (!result.Success)
+        {
+            await _tg.SendMessageAsync(chatId,
+                $"❌ Noto'g'ri kod: {result.Error}\n\nQaytadan kiriting:",
+                ct: ct);
+            return;
+        }
+
+        await FinalizeAccountAddAsync(tgId, chatId, phone, user, ct);
+    }
+
+    // ── Step 3: 2FA password ──────────────────────────────────────────────
+    private async Task HandleAccount2FaAsync(long tgId, long chatId,
+        string password, Domain.Entities.User user, CancellationToken ct)
+    {
+        var raw   = await _state.GetStateDataAsync<string>(tgId, ct) ?? "";
+        var phone = raw.Split('|')[0];
+
+        if (string.IsNullOrEmpty(phone))
+        {
+            await _state.ClearStateAsync(tgId, ct);
+            await _tg.SendMessageAsync(chatId, "❌ Sessiya tugadi. Qaytadan urinib ko'ring.",
+                KB.MainMenu(user.Language), ct);
+            return;
+        }
+
+        await _tg.SendMessageAsync(chatId, "⏳ 2FA tekshirilmoqda...", ct: ct);
+        var result = await _smsAuth.Verify2FaAsync(phone, password, ct);
+
+        if (!result.Success)
+        {
+            await _tg.SendMessageAsync(chatId,
+                $"❌ Parol noto'g'ri: {result.Error}\n\nQaytadan kiriting:",
+                ct: ct);
+            return;
+        }
+
+        await FinalizeAccountAddAsync(tgId, chatId, phone, user, ct);
+    }
+
+    // ── Save account after successful auth ────────────────────────────────
+    private async Task FinalizeAccountAddAsync(long tgId, long chatId,
+        string phone, Domain.Entities.User user, CancellationToken ct)
+    {
         await _state.ClearStateAsync(tgId, ct);
 
         if (await _db.TelegramAccounts.AnyAsync(x => x.UserId == user.Id && x.PhoneNumber == phone, ct))
         {
             await _tg.SendMessageAsync(chatId,
-                "⚠️ Bu raqam allaqachon qo'shilgan.", KB.MainMenu(user.Language), ct);
+                "⚠️ Bu raqam allaqachon ro'yxatda.", KB.MainMenu(user.Language), ct);
             return;
         }
 
@@ -2282,9 +2426,13 @@ public class BotUpdateHandler
         await _db.SaveChangesAsync(ct);
 
         await _tg.SendMessageAsync(chatId,
-            $"✅ <b>Akkaunt qo'shildi!</b>\n\n📞 {phone}\n\n" +
-            "💡 Bu raqam guruh postlash uchun ishlatiladi.",
+            $"✅ <b>Akkaunt muvaffaqiyatli qo'shildi!</b>\n\n" +
+            $"📞 {phone}\n\n" +
+            "🚀 Endi shu akkaunt orqali gurublarga e'lon yuborsangiz bo'ladi.\n\n" +
+            "💡 <b>Maslahat:</b> Premium akkaunt qo'shsangiz ko'proq guruhga erisha olasiz!",
             KB.MainMenu(user.Language), ct);
+
+        await ShowAccountsAsync(chatId, user, ct);
     }
 
     private async Task HandleAccountDeleteAsync(long tgId, long chatId,
@@ -2395,6 +2543,76 @@ public class BotUpdateHandler
             : "📸 To'lov chekini yuboring.";
         await _state.SetStateAsync(tgId, UserState.WaitingBalanceTopup, "balance", ct);
         await _tg.SendMessageAsync(chatId, text, KB.CancelMenu(lang), ct);
+    }
+
+    // ─── Balance topup receipt (WaitingBalanceTopup state) ───────────────
+    private async Task HandleBalanceTopupReceiptAsync(
+        Message msg, Domain.Entities.User user, CancellationToken ct)
+    {
+        var chatId = msg.Chat.Id;
+        var tgId   = msg.From!.Id;
+
+        string? fileId   = null;
+        string? fileType = null;
+
+        if (msg.Photo is { Length: > 0 }) { fileId = msg.Photo.Last().FileId; fileType = "photo"; }
+        else if (msg.Document != null)    { fileId = msg.Document.FileId;     fileType = "document"; }
+        else
+        {
+            await _tg.SendMessageAsync(chatId,
+                "📸 Chekni <b>rasm</b> yoki <b>fayl</b> sifatida yuboring.", ct: ct);
+            return;
+        }
+
+        var payment = new Domain.Entities.Payment
+        {
+            UserId      = user.Id,
+            TariffId    = null,
+            Amount      = 0,
+            Type        = PaymentType.Manual,
+            Status      = PaymentStatus.Pending,
+            CheckFileId = fileId,
+            Comment     = $"BalanceTopup|FileType:{fileType}"
+        };
+        await _db.Payments.AddAsync(payment, ct);
+        await _db.SaveChangesAsync(ct);
+        await _state.ClearStateAsync(tgId, ct);
+
+        await _tg.SendMessageAsync(chatId,
+            "✅ <b>Chekingiz qabul qilindi!</b>\n\n" +
+            "⏳ Admin tekshirib, 5–30 daqiqa ichida balans to'ldiriladi.\n\n" +
+            "📞 Savollar: @TruckBorAdmin",
+            KB.MainMenu(user.Language), ct);
+
+        TimeZoneInfo tz;
+        try { tz = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tashkent"); }
+        catch { tz = TimeZoneInfo.Utc; }
+        var tashkent = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+
+        var adminMsg =
+            $"💰 <b>BALANS TO'LDIRISH #{payment.Id}</b>\n\n" +
+            $"━━━━━━━━━━━━━━━━━━━\n" +
+            $"👤 {user.FullName}\n" +
+            $"📱 {user.PhoneNumber}\n" +
+            $"🆔 TG: <code>{user.TelegramId}</code>\n" +
+            $"💵 Joriy balans: {user.Balance:N0} so'm\n" +
+            $"🕐 {tashkent:dd.MM.yyyy HH:mm:ss}\n" +
+            $"━━━━━━━━━━━━━━━━━━━";
+
+        var kb = KB.PaymentConfirmation(payment.Id);
+        foreach (var adminId in _adminIds)
+        {
+            try
+            {
+                if (fileType == "photo")
+                    await _bot.SendPhoto(adminId, fileId!, caption: adminMsg,
+                        parseMode: ParseMode.Html, replyMarkup: kb);
+                else
+                    await _bot.SendDocument(adminId, fileId!, caption: adminMsg,
+                        parseMode: ParseMode.Html, replyMarkup: kb);
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Admin {Id} ga yuborishda xato", adminId); }
+        }
     }
 
     // ═══ PREMIUM CALLBACKS ════════════════════════════════════════════════

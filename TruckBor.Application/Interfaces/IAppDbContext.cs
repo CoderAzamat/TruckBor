@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using TruckBor.Domain.Entities;
 
 namespace TruckBor.Application.Interfaces;
@@ -16,6 +16,13 @@ public interface IAppDbContext
     DbSet<Channel> Channels { get; }
     DbSet<Setting> Settings { get; }
     DbSet<AdminUser> AdminUsers { get; }
+
+    // New entities
+    DbSet<PaymentProvider> PaymentProviders { get; }
+    DbSet<BalanceTransaction> BalanceTransactions { get; }
+    DbSet<VirtualNumberOrder> VirtualNumberOrders { get; }
+    DbSet<PremiumOrder> PremiumOrders { get; }
+    DbSet<VideoTutorial> VideoTutorials { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

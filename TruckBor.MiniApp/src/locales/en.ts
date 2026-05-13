@@ -66,6 +66,9 @@ export const en: Record<string, string> = {
   tariffs: 'Plans',
   buy_tariff: 'Purchase',
   payment_cards: 'Payment cards',
+  virtual_numbers: 'Virtual numbers',
+  tg_premium: 'TG Premium',
+  balance_topup: 'Top up balance',
 
   // Profile
   language: 'Language',
@@ -77,4 +80,6 @@ export const en: Record<string, string> = {
   channel: 'Channel',
   logout: 'Log out',
   not_logged_in: 'Not logged in',
+  balance: 'Balance',
+  total_posts: 'Total ads',
 };

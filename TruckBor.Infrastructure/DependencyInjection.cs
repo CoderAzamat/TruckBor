@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
@@ -16,32 +16,55 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // PostgreSQL
+        // ── PostgreSQL ──────────────────────────────────────────
         services.AddDbContext<AppDbContext>(opts =>
-        opts.UseNpgsql(configuration.GetConnectionString("Default")));
+            opts.UseNpgsql(configuration.GetConnectionString("Default")));
 
         services.AddScoped<IAppDbContext>(sp =>
             sp.GetRequiredService<AppDbContext>());
 
-        // Redis
+        // ── Redis ───────────────────────────────────────────────
         services.AddSingleton<IConnectionMultiplexer>(_ =>
             ConnectionMultiplexer.Connect(
                 configuration.GetConnectionString("Redis")!));
 
-        // Services
+        // ── HTTP clients ────────────────────────────────────────
+        services.AddHttpClient("smsactivate", client =>
+        {
+            client.BaseAddress = new Uri("https://api.sms-activate.guru");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        services.AddHttpClient("pyro", client =>
+        {
+            var url = configuration["TelegramAuth:ServiceUrl"];
+            if (!string.IsNullOrWhiteSpace(url))
+                client.BaseAddress = new Uri(url);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        services.AddHttpClient("telegram");
+
+        // ── Core Services ───────────────────────────────────────
         services.AddSingleton<ICacheService, CacheService>();
         services.AddSingleton<IUserStateService, UserStateService>();
-        services.AddScoped<ITelegramService, TelegramService>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
-        services.AddScoped<IPaymentService, PaymentService>();
-        services.AddScoped<IPostingService, PostingService>();
         services.AddSingleton<IAiPostService, AiPostService>();
 
-        // Telegram Bot
+        // ── Scoped Business Services ────────────────────────────
+        services.AddScoped<ITelegramService, TelegramService>();
+        services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IPostingService, PostingService>();
+        services.AddScoped<IBalanceService, BalanceService>();
+        services.AddScoped<IVirtualNumberService, VirtualNumberService>();
+        services.AddScoped<IPremiumOrderService, PremiumOrderService>();
+        services.AddScoped<ITelegramSmsAuthService, TelegramSmsAuthService>();
+
+        // ── Telegram Bot ────────────────────────────────────────
         services.AddSingleton<ITelegramBotClient>(_ =>
             new TelegramBotClient(configuration["Bot:Token"]!));
 
-        // Bot Handler
+        // ── Bot Handler ─────────────────────────────────────────
         services.AddScoped<BotUpdateHandler>();
 
         return services;

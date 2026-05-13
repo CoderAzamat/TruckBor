@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { uz } from '../locales/uz';
-import { ru } from '../locales/ru';
-import { en } from '../locales/en';
+import { uz }  from '../locales/uz';
+import { uzc } from '../locales/uzc';
+import { ru }  from '../locales/ru';
+import { en }  from '../locales/en';
+import { tr }  from '../locales/tr';
 
-export type Locale = 'uz' | 'ru' | 'en';
+export type Locale = 'uz' | 'uzc' | 'ru' | 'en' | 'tr';
 
-const dicts: Record<Locale, Record<string, string>> = { uz, ru, en };
+const dicts: Record<Locale, Record<string, string>> = { uz, uzc, ru, en, tr };
 
 interface LocaleState {
   locale: Locale;
@@ -20,7 +22,7 @@ export const useLocale = create<LocaleState>()(
       locale: 'uz',
       t: (key, params) => {
         const dict = dicts[get().locale] ?? uz;
-        let str = dict[key] ?? key;
+        let str = dict[key] ?? uz[key] ?? key;
         if (params) {
           for (const [k, v] of Object.entries(params)) {
             str = str.replace(`{${k}}`, String(v));
@@ -28,7 +30,7 @@ export const useLocale = create<LocaleState>()(
         }
         return str;
       },
-      setLocale: (locale) => set({ locale })
+      setLocale: (locale) => set({ locale }),
     }),
     { name: 'truckbor-locale' }
   )
