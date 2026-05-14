@@ -202,6 +202,89 @@ public class MiniAppController(AppDbContext db, IConfiguration config) : Control
             items.Select(ToDto), total, page, pageSize, (page * pageSize) < total));
     }
 
+    /// <summary>
+    /// Guruhlardan scrape qilingan e'lonlar — bepul barchaga ko'rinadi.
+    /// </summary>
+    [HttpGet("feed")]
+    public async Task<IActionResult> Feed(
+        [FromQuery] string? postType,
+        [FromQuery] string? fromCity,
+        [FromQuery] string? toCity,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var q = db.ScrapedPosts
+            .Where(p => p.IsRelevant && p.IsVisible && p.ExpiresAt > DateTime.UtcNow)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(postType) && Enum.TryParse<PostType>(postType, out var pt))
+            q = q.Where(p => p.PostType == pt);
+
+        if (!string.IsNullOrEmpty(fromCity))
+            q = q.Where(p => p.FromCity != null && p.FromCity.ToLower().Contains(fromCity.ToLower()));
+
+        if (!string.IsNullOrEmpty(toCity))
+            q = q.Where(p => p.ToCity != null && p.ToCity.ToLower().Contains(toCity.ToLower()));
+
+        var total = await q.CountAsync(ct);
+        var items = await q
+            .OrderByDescending(p => p.MessageDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(p => new
+            {
+                p.Id,
+                type = "scraped",
+                p.PostType,
+                p.FromCity,
+                p.ToCity,
+                p.CargoType,
+                p.Weight,
+                p.VehicleType,
+                p.Price,
+                p.ContactPhone,
+                p.Description,
+                p.AuthorName,
+                p.SourceGroupTitle,
+                p.Confidence,
+                p.ViewCount,
+                messageDate = p.MessageDate,
+                expiresAt = p.ExpiresAt,
+            })
+            .ToListAsync(ct);
+
+        // ViewCount ++
+        if (items.Any())
+        {
+            var ids = items.Select(x => x.Id).ToList();
+            await db.ScrapedPosts.Where(p => ids.Contains(p.Id))
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.ViewCount, p => p.ViewCount + 1), ct);
+        }
+
+        return Ok(new { items, total, page, pageSize, hasMore = (page * pageSize) < total });
+    }
+
+    [HttpGet("feed/{id:long}")]
+    public async Task<IActionResult> FeedDetail(long id, CancellationToken ct)
+    {
+        var p = await db.ScrapedPosts.FindAsync(new object[] { id }, ct);
+        if (p is null || !p.IsRelevant) return NotFound();
+
+        p.ContactViews++;
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            p.Id, p.PostType, p.FromCity, p.ToCity,
+            p.CargoType, p.Weight, p.VehicleType, p.Price,
+            p.ContactPhone, p.Description, p.RawText,
+            p.AuthorName, p.SourceGroupTitle, p.Confidence,
+            p.ViewCount, p.ContactViews,
+            p.MessageDate, p.ExpiresAt
+        });
+    }
+
     [HttpGet("posts/mine")]
     [Authorize]
     public async Task<IActionResult> MyPosts(CancellationToken ct)

@@ -23,6 +23,8 @@ public interface IAppDbContext
     DbSet<VirtualNumberOrder> VirtualNumberOrders { get; }
     DbSet<PremiumOrder> PremiumOrders { get; }
     DbSet<VideoTutorial> VideoTutorials { get; }
+    DbSet<ScrapedPost> ScrapedPosts { get; }
+    DbSet<SystemAccount> SystemAccounts { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

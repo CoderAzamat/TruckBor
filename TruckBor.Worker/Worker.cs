@@ -1,13 +1,16 @@
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
+using TruckBor.Application.Interfaces;
 using TruckBor.Domain.Enums;
 using TruckBor.Infrastructure.Data;
+using TruckBor.Infrastructure.Services;
 
 namespace TruckBor.Worker;
 
 /// <summary>
-/// Background worker: subscription expiry, post expiry, analytics channel every minute.
+/// Background worker: subscription expiry, post expiry, analytics,
+/// session health checks, spam recovery, account maintenance.
 /// </summary>
 public class Worker : BackgroundService
 {
@@ -16,8 +19,10 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker>      _logger;
 
     private DateTime _lastSubscriptionCheck = DateTime.MinValue;
-    private DateTime _lastAnalyticsPost     = DateTime.MinValue;
-    private int      _analyticsMinute       = -1; // track last sent minute
+    private DateTime _lastSessionCheck      = DateTime.MinValue;
+    private DateTime _lastSpamRecovery      = DateTime.MinValue;
+    private DateTime _lastScrape            = DateTime.MinValue;
+    private int      _analyticsMinute       = -1;
 
     public Worker(IServiceScopeFactory scopeFactory, ITelegramBotClient bot, ILogger<Worker> logger)
     {
@@ -50,6 +55,27 @@ public class Worker : BackgroundService
                     await ExpireSubscriptionsAsync(db, ct);
                     await ExpirePostsAsync(db, ct);
                     await NotifyExpiringSubscriptionsAsync(db, ct);
+                }
+
+                // ── Session health check: every 2 hours ───────────────────
+                if ((now - _lastSessionCheck).TotalHours >= 2)
+                {
+                    _lastSessionCheck = now;
+                    await CheckSessionHealthAsync(ct);
+                }
+
+                // ── Spam recovery: every 1 hour ───────────────────────────
+                if ((now - _lastSpamRecovery).TotalHours >= 1)
+                {
+                    _lastSpamRecovery = now;
+                    await RecoverSpammedAccountsAsync(ct);
+                }
+
+                // ── Scraping: every 10 minutes ───────────────────────────
+                if ((now - _lastScrape).TotalMinutes >= 10)
+                {
+                    _lastScrape = now;
+                    await RunScrapingAsync(ct);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -188,5 +214,161 @@ public class Worker : BackgroundService
 
         if (subs.Any())
             _logger.LogInformation("Sent expiry notifications to {Count} users", subs.Count);
+    }
+
+    // ═══ SESSION HEALTH CHECK ════════════════════════════════════════════
+    private async Task CheckSessionHealthAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db   = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var pyro = scope.ServiceProvider.GetRequiredService<ITelegramSmsAuthService>();
+
+            var accounts = await db.TelegramAccounts
+                .Where(x => x.IsActive && !x.IsSpammed &&
+                            x.SessionString != null && x.SessionString != "")
+                .ToListAsync(ct);
+
+            if (!accounts.Any()) return;
+
+            var invalidCount = 0;
+            foreach (var account in accounts)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    var result = await pyro.CheckSessionAsync(account.SessionString!, ct);
+                    if (result.Success && !result.Valid)
+                    {
+                        account.IsActive = false;
+                        invalidCount++;
+                        _logger.LogWarning("Session invalid for {Phone}, deactivated", account.PhoneNumber);
+
+                        // Notify user
+                        var user = await db.Users.FirstOrDefaultAsync(x => x.Id == account.UserId, ct);
+                        if (user is not null)
+                        {
+                            try
+                            {
+                                await _bot.SendMessage(user.TelegramId,
+                                    $"⚠️ <b>Akkaunt sessiyasi eskirgan!</b>\n\n" +
+                                    $"📞 {account.PhoneNumber}\n" +
+                                    "Qayta ulanish uchun «📱 Akkaunt qo'shish» tugmasini bosing.",
+                                    parseMode: ParseMode.Html, cancellationToken: ct);
+                            }
+                            catch { }
+                        }
+                    }
+                    else if (result.Success && result.IsPremium && !account.IsPremium)
+                    {
+                        account.IsPremium = true; // sync Premium status
+                    }
+
+                    await Task.Delay(500, ct); // rate limit
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Session check failed for {Phone}", account.PhoneNumber);
+                }
+            }
+
+            if (invalidCount > 0) await db.SaveChangesAsync(ct);
+            _logger.LogInformation("Session health check: {Total} accounts, {Invalid} invalid",
+                accounts.Count, invalidCount);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Session health check failed");
+        }
+    }
+
+    // ═══ SPAM RECOVERY ══════════════════════════════════════════════════
+    private async Task RecoverSpammedAccountsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db   = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var pyro = scope.ServiceProvider.GetRequiredService<ITelegramSmsAuthService>();
+
+            // Try to recover accounts spammed more than 1 hour ago
+            var cutoff = DateTime.UtcNow.AddHours(-1);
+            var spammedAccounts = await db.TelegramAccounts
+                .Where(x => x.IsSpammed && x.SpammedAt != null && x.SpammedAt < cutoff &&
+                            x.SessionString != null && x.SessionString != "")
+                .Take(5) // limit batch size
+                .ToListAsync(ct);
+
+            if (!spammedAccounts.Any()) return;
+
+            var recovered = 0;
+            foreach (var account in spammedAccounts)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    // Try fix spam via @SpamBot
+                    var fix = await pyro.FixSpamAsync(account.SessionString!, ct);
+
+                    // Check if session is still valid and not spammed
+                    var check = await pyro.CheckSessionAsync(account.SessionString!, ct);
+                    if (check.Success && check.Valid)
+                    {
+                        account.IsSpammed = false;
+                        account.IsActive = true;
+                        account.SpammedAt = null;
+                        recovered++;
+
+                        // Notify user
+                        var user = await db.Users.FirstOrDefaultAsync(x => x.Id == account.UserId, ct);
+                        if (user is not null)
+                        {
+                            try
+                            {
+                                await _bot.SendMessage(user.TelegramId,
+                                    $"✅ <b>Akkaunt tiklandi!</b>\n\n" +
+                                    $"📞 {account.PhoneNumber}\n" +
+                                    "Spam blokdan chiqarildi. Endi e'lon tarqatish uchun foydalanish mumkin!",
+                                    parseMode: ParseMode.Html, cancellationToken: ct);
+                            }
+                            catch { }
+                        }
+
+                        _logger.LogInformation("Account {Phone} recovered from spam", account.PhoneNumber);
+                    }
+
+                    await Task.Delay(2000, ct); // don't rush
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Spam recovery failed for {Phone}", account.PhoneNumber);
+                }
+            }
+
+            if (recovered > 0) await db.SaveChangesAsync(ct);
+            _logger.LogInformation("Spam recovery: {Recovered}/{Total} accounts recovered",
+                recovered, spammedAccounts.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Spam recovery failed");
+        }
+    }
+
+    // ═══ SCRAPING ═══════════════════════════════════════════════════════
+    private async Task RunScrapingAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var scraper = scope.ServiceProvider.GetRequiredService<ScrapingService>();
+            await scraper.ScrapeAllGroupsAsync(ct);
+            await scraper.CleanupExpiredAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Scraping failed");
+        }
     }
 }

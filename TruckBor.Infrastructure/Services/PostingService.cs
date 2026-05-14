@@ -12,18 +12,21 @@ public class PostingService : IPostingService
 {
     private readonly IAppDbContext _db;
     private readonly ITelegramBotClient _bot;
+    private readonly ITelegramSmsAuthService _pyro;
     private readonly ILogger<PostingService> _logger;
 
     public PostingService(
         IAppDbContext db,
         ITelegramBotClient bot,
+        ITelegramSmsAuthService pyro,
         ILogger<PostingService> logger)
     {
-        _db = db; _bot = bot; _logger = logger;
+        _db = db; _bot = bot; _pyro = pyro; _logger = logger;
     }
 
     public async Task PostToGroupsAsync(long postId, long userId, CancellationToken ct = default)
     {
+        // Always post to channel via bot first
         await PostToChannelAsync(postId, ct);
 
         var post = await _db.Posts
@@ -53,26 +56,190 @@ public class PostingService : IPostingService
 
         if (!groups.Any()) return;
 
-        var total    = groups.Count;
-        var delayMs  = Math.Max(tariff.PostIntervalMinutes * 60_000 / Math.Max(total, 1), 500);
-        var posted   = 0;
+        // ── Try posting from USER ACCOUNTS first (Pyrogram) ────────────────
+        var accounts = await _db.TelegramAccounts
+            .Where(x => x.UserId == userId && x.IsActive && !x.IsSpammed &&
+                         x.SessionString != null && x.SessionString != "")
+            .OrderBy(x => x.PostsSent)
+            .ToListAsync(ct);
 
-        // ── Progress message ─────────────────────────────────────────────
+        if (accounts.Any())
+        {
+            await PostViaUserAccountsAsync(post, user, accounts, groups, caption, tariff, ct);
+        }
+        else
+        {
+            // Fallback: post via BOT API (bot must be admin in groups)
+            await PostViaBotApiAsync(post, user, groups, caption, tariff, ct);
+        }
+    }
+
+    // ═══ POST VIA USER ACCOUNTS (Pyrogram) ═══════════════════════════════════
+    private async Task PostViaUserAccountsAsync(
+        Domain.Entities.Post post,
+        Domain.Entities.User user,
+        List<Domain.Entities.TelegramAccount> accounts,
+        List<Domain.Entities.Group> groups,
+        string caption,
+        Domain.Entities.Tariff tariff,
+        CancellationToken ct)
+    {
+        var total = groups.Count;
+        var posted = 0;
+        var accountIndex = 0;
+        var groupsPerAccount = Math.Max(total / Math.Max(accounts.Count, 1), 10);
+
+        // Progress message
         int? progressMsgId = null;
-        var  progressEvery = Math.Max(total / 5, 1); // update ~5 times total
-
         try
         {
-            var initMsg = await _bot.SendMessage(
-                user.TelegramId,
+            var initMsg = await _bot.SendMessage(user.TelegramId,
                 $"📤 <b>E'lon tarqatilmoqda...</b>\n" +
+                $"👥 {accounts.Count} ta akkaunt ishlatilmoqda\n" +
                 $"⏳ 0/{total} guruhga yuborildi",
                 parseMode: ParseMode.Html, cancellationToken: ct);
             progressMsgId = initMsg.MessageId;
         }
-        catch { /* progress is non-critical */ }
+        catch { }
 
-        // ── Posting loop ─────────────────────────────────────────────────
+        foreach (var account in accounts)
+        {
+            if (ct.IsCancellationRequested || posted >= total) break;
+
+            var batchGroups = groups
+                .Skip(posted)
+                .Take(groupsPerAccount)
+                .Select(g => g.TelegramGroupId)
+                .ToList();
+
+            if (!batchGroups.Any()) break;
+
+            _logger.LogInformation("Posting via account {Phone} to {Count} groups",
+                account.PhoneNumber, batchGroups.Count);
+
+            var result = await _pyro.SendToGroupsAsync(
+                account.SessionString!,
+                batchGroups,
+                caption,
+                delaySeconds: Math.Max(tariff.PostIntervalMinutes * 60 / Math.Max(batchGroups.Count, 1), 2),
+                ct);
+
+            if (result.Success)
+            {
+                posted += result.Sent;
+                account.PostsSent += result.Sent;
+                account.LastUsed = DateTime.UtcNow;
+
+                // Handle spam detection
+                if (result.Spam)
+                {
+                    account.IsSpammed = true;
+                    account.SpammedAt = DateTime.UtcNow;
+                    account.IsActive = false;
+                    _logger.LogWarning("Account {Phone} got SPAMMED during posting", account.PhoneNumber);
+
+                    // Auto-fix spam
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var fix = await _pyro.FixSpamAsync(account.SessionString!);
+                            await _bot.SendMessage(user.TelegramId,
+                                $"⚠️ <b>Spam aniqlandi!</b>\n\n" +
+                                $"📞 {account.PhoneNumber}\n" +
+                                $"🤖 @SpamBot ga avtomatik murojaat yuborildi.\n" +
+                                (fix.IsPremium
+                                    ? "✅ Premium akkaunt — spam tez hal bo'ladi!"
+                                    : "💡 <b>Maslahat:</b> Telegram Premium olsangiz spam yo'qoladi!"),
+                                parseMode: ParseMode.Html);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Auto spam fix failed for {Phone}", account.PhoneNumber);
+                        }
+                    }, CancellationToken.None);
+                }
+
+                // Update progress
+                if (progressMsgId.HasValue)
+                {
+                    try
+                    {
+                        await _bot.EditMessageText(user.TelegramId, progressMsgId.Value,
+                            $"📤 <b>E'lon tarqatilmoqda...</b>\n" +
+                            $"✅ {posted}/{total} guruhga yuborildi\n" +
+                            $"📱 {account.PhoneNumber} — {result.Sent} ta",
+                            parseMode: ParseMode.Html, cancellationToken: ct);
+                    }
+                    catch { }
+                }
+
+                // Mark failed groups as inactive
+                if (result.Results is not null)
+                {
+                    foreach (var r in result.Results.Where(r => !r.Ok && r.Error is "banned/forbidden"))
+                    {
+                        var g = groups.FirstOrDefault(x => x.TelegramGroupId == r.GroupId);
+                        if (g is not null) g.IsActive = false;
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("SendToGroups failed for {Phone}: {Error}",
+                    account.PhoneNumber, result.Error);
+            }
+
+            accountIndex++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        // Final status
+        if (progressMsgId.HasValue)
+        {
+            try
+            {
+                await _bot.EditMessageText(user.TelegramId, progressMsgId.Value,
+                    $"✅ <b>E'lon muvaffaqiyatli tarqatildi!</b>\n" +
+                    $"📤 {posted}/{total} guruhga yuborildi\n" +
+                    $"👥 {accounts.Count} ta akkaunt ishlatildi\n" +
+                    $"#TruckBor #{post.FromCity?.Replace(" ", "")} #{post.ToCity?.Replace(" ", "")}",
+                    parseMode: ParseMode.Html, cancellationToken: ct);
+            }
+            catch { }
+        }
+
+        _logger.LogInformation("Post {PostId} sent to {Count}/{Total} groups via user accounts",
+            post.Id, posted, total);
+    }
+
+    // ═══ POST VIA BOT API (fallback) ═════════════════════════════════════════
+    private async Task PostViaBotApiAsync(
+        Domain.Entities.Post post,
+        Domain.Entities.User user,
+        List<Domain.Entities.Group> groups,
+        string caption,
+        Domain.Entities.Tariff tariff,
+        CancellationToken ct)
+    {
+        var total    = groups.Count;
+        var delayMs  = Math.Max(tariff.PostIntervalMinutes * 60_000 / Math.Max(total, 1), 500);
+        var posted   = 0;
+        var progressEvery = Math.Max(total / 5, 1);
+
+        int? progressMsgId = null;
+        try
+        {
+            var initMsg = await _bot.SendMessage(user.TelegramId,
+                $"📤 <b>E'lon tarqatilmoqda (bot orqali)...</b>\n" +
+                $"⏳ 0/{total} guruhga yuborildi\n\n" +
+                "💡 Akkaunt qo'shsangiz tezroq va ko'proq tarqatiladi!",
+                parseMode: ParseMode.Html, cancellationToken: ct);
+            progressMsgId = initMsg.MessageId;
+        }
+        catch { }
+
         var spamCount = 0;
         foreach (var group in groups)
         {
@@ -83,16 +250,14 @@ public class PostingService : IPostingService
                     parseMode: ParseMode.Html, cancellationToken: ct);
                 group.LastPostedAt = DateTime.UtcNow;
                 posted++;
-                spamCount = 0; // reset on success
+                spamCount = 0;
 
-                // Update progress
                 if (progressMsgId.HasValue && posted % progressEvery == 0)
                 {
                     try
                     {
-                        await _bot.EditMessageText(
-                            user.TelegramId, progressMsgId.Value,
-                            $"📤 <b>E'lon tarqatilmoqda...</b>\n" +
+                        await _bot.EditMessageText(user.TelegramId, progressMsgId.Value,
+                            $"📤 <b>E'lon tarqatilmoqda (bot orqali)...</b>\n" +
                             $"✅ {posted}/{total} guruhga yuborildi",
                             parseMode: ParseMode.Html, cancellationToken: ct);
                     }
@@ -103,7 +268,6 @@ public class PostingService : IPostingService
             }
             catch (ApiRequestException apiEx)
             {
-                // Kicked/blocked from group — deactivate it
                 if (apiEx.ErrorCode is 403 or 400)
                 {
                     group.IsActive = false;
@@ -112,23 +276,15 @@ public class PostingService : IPostingService
                 else if (apiEx.Message.Contains("Too Many Requests") || apiEx.ErrorCode == 429)
                 {
                     spamCount++;
-                    _logger.LogWarning("Spam/flood on group {Id}, count={C}", group.TelegramGroupId, spamCount);
                     if (spamCount >= 3)
                     {
-                        // Notify admin about spam detection
                         await NotifySpamDetectedAsync(user, spamCount, ct);
-                        await Task.Delay(30_000, ct); // wait 30s after flood
+                        await Task.Delay(30_000, ct);
                         spamCount = 0;
                     }
-                    else
-                    {
-                        await Task.Delay(5_000, ct);
-                    }
+                    else await Task.Delay(5_000, ct);
                 }
-                else
-                {
-                    _logger.LogDebug(apiEx, "Group {GroupId} post failed", group.TelegramGroupId);
-                }
+                else _logger.LogDebug(apiEx, "Group {GroupId} post failed", group.TelegramGroupId);
             }
             catch (Exception ex)
             {
@@ -136,16 +292,13 @@ public class PostingService : IPostingService
             }
         }
 
-        if (posted > 0)
-            await _db.SaveChangesAsync(ct);
+        if (posted > 0) await _db.SaveChangesAsync(ct);
 
-        // ── Final status ─────────────────────────────────────────────────
         if (progressMsgId.HasValue)
         {
             try
             {
-                await _bot.EditMessageText(
-                    user.TelegramId, progressMsgId.Value,
+                await _bot.EditMessageText(user.TelegramId, progressMsgId.Value,
                     $"✅ <b>E'lon muvaffaqiyatli tarqatildi!</b>\n" +
                     $"📤 {posted}/{total} guruhga yuborildi\n" +
                     $"#TruckBor #{post.FromCity?.Replace(" ", "")} #{post.ToCity?.Replace(" ", "")}",
@@ -154,10 +307,11 @@ public class PostingService : IPostingService
             catch { }
         }
 
-        _logger.LogInformation("Post {PostId} sent to {Count}/{Total} groups",
-            postId, posted, total);
+        _logger.LogInformation("Post {PostId} sent to {Count}/{Total} groups via bot API",
+            post.Id, posted, total);
     }
 
+    // ═══ CHANNEL POSTING ═════════════════════════════════════════════════════
     public async Task PostToChannelAsync(long postId, CancellationToken ct = default)
     {
         var post = await _db.Posts
@@ -183,19 +337,18 @@ public class PostingService : IPostingService
         }
     }
 
+    // ═══ SPAM HANDLING ═══════════════════════════════════════════════════════
     private async Task NotifySpamDetectedAsync(
         Domain.Entities.User user, int count, CancellationToken ct)
     {
         try
         {
-            await _bot.SendMessage(
-                user.TelegramId,
+            await _bot.SendMessage(user.TelegramId,
                 $"⚠️ <b>Spam aniqlandi!</b>\n\n" +
                 $"📊 {count} ta guruhda xatolik yuz berdi.\n" +
                 "⏳ 30 soniya kutilmoqda...\n\n" +
                 "ℹ️ @SpamBot ga murojaat qilib blokdan chiqishingiz mumkin.",
-                parseMode: ParseMode.Html,
-                cancellationToken: ct);
+                parseMode: ParseMode.Html, cancellationToken: ct);
         }
         catch { }
     }
@@ -211,9 +364,18 @@ public class PostingService : IPostingService
         account.IsActive = false;
         await _db.SaveChangesAsync(ct);
 
+        // Auto-fix spam if session exists
+        if (!string.IsNullOrEmpty(account.SessionString))
+        {
+            var fix = await _pyro.FixSpamAsync(account.SessionString, ct);
+            _logger.LogInformation("Auto spam fix for {Phone}: {Result}",
+                account.PhoneNumber, fix.Success ? "OK" : fix.Error);
+        }
+
         _logger.LogWarning("TelegramAccount {Phone} marked as spammed", account.PhoneNumber);
     }
 
+    // ═══ CAPTION BUILDER ═════════════════════════════════════════════════════
     private static string BuildCaption(Domain.Entities.Post post, Domain.Entities.User? user)
     {
         var roleIcon = post.PostedBy switch
@@ -236,6 +398,8 @@ public class PostingService : IPostingService
             $"📞 <code>{post.ContactPhone}</code>\n" +
             (user is not null ? $"👤 {user.FullName}\n" : "") +
             $"🕐 {now:dd.MM.yyyy HH:mm}\n" +
-            $"#TruckBor #{post.FromCity?.Replace(" ", "")} #{post.ToCity?.Replace(" ", "")}";
+            $"#TruckBor #{post.FromCity?.Replace(" ", "")} #{post.ToCity?.Replace(" ", "")}\n" +
+            "━━━━━━━━━━━━━━━━━━━━━\n" +
+            "🤖 TruckBor Bot orqali yuborildi";
     }
 }

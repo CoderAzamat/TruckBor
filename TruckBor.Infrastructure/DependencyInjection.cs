@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<IVirtualNumberService, VirtualNumberService>();
         services.AddScoped<IPremiumOrderService, PremiumOrderService>();
         services.AddScoped<ITelegramSmsAuthService, TelegramSmsAuthService>();
+        services.AddScoped<ScrapingService>();
 
         // ── Telegram Bot ────────────────────────────────────────
         services.AddSingleton<ITelegramBotClient>(_ =>

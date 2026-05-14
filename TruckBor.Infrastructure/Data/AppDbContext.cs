@@ -26,6 +26,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<VirtualNumberOrder> VirtualNumberOrders => Set<VirtualNumberOrder>();
     public DbSet<PremiumOrder> PremiumOrders => Set<PremiumOrder>();
     public DbSet<VideoTutorial> VideoTutorials => Set<VideoTutorial>();
+    public DbSet<ScrapedPost> ScrapedPosts => Set<ScrapedPost>();
+    public DbSet<SystemAccount> SystemAccounts => Set<SystemAccount>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +52,23 @@ public class AppDbContext : DbContext, IAppDbContext
         {
             e.HasIndex(x => x.UserId);
             e.HasIndex(x => x.Status);
+        });
+
+        // ScrapedPost indexes
+        modelBuilder.Entity<ScrapedPost>(e =>
+        {
+            e.HasIndex(x => new { x.SourceGroupId, x.TelegramMessageId }).IsUnique();
+            e.HasIndex(x => x.FromCity);
+            e.HasIndex(x => x.ToCity);
+            e.HasIndex(x => x.IsRelevant);
+            e.HasIndex(x => x.ExpiresAt);
+            e.HasIndex(x => x.MessageDate);
+        });
+
+        // SystemAccount indexes
+        modelBuilder.Entity<SystemAccount>(e =>
+        {
+            e.HasIndex(x => x.PhoneNumber).IsUnique();
         });
 
         base.OnModelCreating(modelBuilder);

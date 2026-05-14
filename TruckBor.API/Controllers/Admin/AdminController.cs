@@ -507,6 +507,300 @@ public sealed class AdminController : ControllerBase
         return Ok();
     }
 
+    // ═══ TELEGRAM ACCOUNTS ═════════════════════════════════════════════
+    [HttpGet("accounts")]
+    public async Task<IActionResult> GetAccounts([FromQuery] int page = 1, [FromQuery] int limit = 30, CancellationToken ct = default)
+    {
+        var q = _db.TelegramAccounts.Include(a => a.User).AsQueryable();
+        var total = await q.CountAsync(ct);
+        var activeCount = await q.CountAsync(a => a.IsActive, ct);
+        var spammedCount = await q.CountAsync(a => a.IsSpammed, ct);
+        var premiumCount = await q.CountAsync(a => a.IsPremium, ct);
+
+        var accounts = await q.OrderByDescending(a => a.CreatedAt)
+            .Skip((page - 1) * limit).Take(limit)
+            .Select(a => new
+            {
+                a.Id, a.PhoneNumber,
+                userName = a.User != null ? a.User.FullName : "—",
+                a.UserId, a.IsActive, a.IsPremium, a.IsSpammed,
+                a.PostsSent, a.LastUsed, a.SpammedAt, a.CreatedAt
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { total, activeCount, spammedCount, premiumCount, accounts });
+    }
+
+    [HttpPut("accounts/{id:long}/toggle")]
+    public async Task<IActionResult> ToggleAccount(long id, CancellationToken ct)
+    {
+        var a = await _db.TelegramAccounts.FindAsync(new object[] { id }, ct);
+        if (a is null) return NotFound();
+        a.IsActive = !a.IsActive;
+        await _db.SaveChangesAsync(ct);
+        return Ok();
+    }
+
+    [HttpPost("accounts/{id:long}/fix-spam")]
+    public async Task<IActionResult> FixAccountSpam(long id,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var a = await _db.TelegramAccounts.FindAsync(new object[] { id }, ct);
+        if (a is null) return NotFound();
+        if (string.IsNullOrEmpty(a.SessionString))
+            return BadRequest(new { error = "Sessiya yo'q" });
+
+        var fix = await pyro.FixSpamAsync(a.SessionString, ct);
+        if (fix.Success)
+        {
+            a.IsSpammed = false;
+            a.IsActive = true;
+            a.SpammedAt = null;
+            await _db.SaveChangesAsync(ct);
+        }
+        return Ok(new { fix.Success, fix.IsPremium, fix.Message, fix.Error });
+    }
+
+    [HttpPost("accounts/{id:long}/check-session")]
+    public async Task<IActionResult> CheckAccountSession(long id,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var a = await _db.TelegramAccounts.FindAsync(new object[] { id }, ct);
+        if (a is null) return NotFound();
+        if (string.IsNullOrEmpty(a.SessionString))
+            return Ok(new { valid = false, isPremium = false, error = "Sessiya yo'q" });
+
+        var check = await pyro.CheckSessionAsync(a.SessionString, ct);
+        if (check.Success && !check.Valid)
+        {
+            a.IsActive = false;
+            await _db.SaveChangesAsync(ct);
+        }
+        else if (check.Success && check.IsPremium && !a.IsPremium)
+        {
+            a.IsPremium = true;
+            await _db.SaveChangesAsync(ct);
+        }
+        return Ok(new { check.Valid, check.IsPremium, check.Error });
+    }
+
+    // ═══ SYSTEM ACCOUNTS (scraping uchun tizim akkaunt) ════════════════
+    [HttpGet("system-accounts")]
+    public async Task<IActionResult> GetSystemAccounts(CancellationToken ct)
+    {
+        var accounts = await _db.SystemAccounts
+            .OrderByDescending(a => a.CreatedAt)
+            .Select(a => new
+            {
+                a.Id, a.PhoneNumber, a.IsActive, a.IsPremium, a.IsSpammed,
+                a.SpammedAt, a.LastUsed, a.LastScrapeAt,
+                a.JoinedGroupsCount, a.TotalScraped, a.Note, a.Purpose
+            })
+            .ToListAsync(ct);
+        return Ok(accounts);
+    }
+
+    [HttpPost("system-accounts")]
+    public async Task<IActionResult> AddSystemAccount([FromBody] SystemAccountRequest req, CancellationToken ct)
+    {
+        var acc = new Domain.Entities.SystemAccount
+        {
+            PhoneNumber = req.PhoneNumber,
+            SessionString = req.SessionString,
+            IsActive = true,
+            Note = req.Note,
+            Purpose = req.Purpose ?? "all"
+        };
+        _db.SystemAccounts.Add(acc);
+        await _db.SaveChangesAsync(ct);
+        return Ok(acc);
+    }
+
+    [HttpPut("system-accounts/{id:long}")]
+    public async Task<IActionResult> UpdateSystemAccount(long id, [FromBody] SystemAccountRequest req, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+        if (!string.IsNullOrEmpty(req.SessionString)) acc.SessionString = req.SessionString;
+        if (!string.IsNullOrEmpty(req.Note)) acc.Note = req.Note;
+        if (!string.IsNullOrEmpty(req.Purpose)) acc.Purpose = req.Purpose;
+        await _db.SaveChangesAsync(ct);
+        return Ok(acc);
+    }
+
+    [HttpPut("system-accounts/{id:long}/toggle")]
+    public async Task<IActionResult> ToggleSystemAccount(long id, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+        acc.IsActive = !acc.IsActive;
+        await _db.SaveChangesAsync(ct);
+        return Ok();
+    }
+
+    [HttpPost("system-accounts/{id:long}/auth")]
+    public async Task<IActionResult> SystemAccountSendCode(long id,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+
+        var result = await pyro.SendCodeAsync(acc.PhoneNumber, ct);
+        return Ok(new { result.Success, result.PhoneCodeHash, result.Error });
+    }
+
+    [HttpPost("system-accounts/{id:long}/verify")]
+    public async Task<IActionResult> SystemAccountVerify(long id,
+        [FromBody] SystemAccountVerifyRequest req,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+
+        var result = await pyro.VerifyCodeAsync(acc.PhoneNumber, req.Code, req.PhoneCodeHash, ct);
+        if (result.Success)
+        {
+            acc.SessionString = result.SessionString;
+            acc.IsPremium = result.IsPremium;
+            acc.IsActive = true;
+            await _db.SaveChangesAsync(ct);
+        }
+        return Ok(new { result.Success, result.Needs2FA, result.IsPremium, result.Error });
+    }
+
+    [HttpPost("system-accounts/{id:long}/verify-2fa")]
+    public async Task<IActionResult> SystemAccountVerify2FA(long id,
+        [FromBody] SystemAccount2FARequest req,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+
+        var result = await pyro.Verify2FaAsync(acc.PhoneNumber, req.Password, ct);
+        if (result.Success)
+        {
+            acc.SessionString = result.SessionString;
+            acc.IsPremium = result.IsPremium;
+            acc.IsActive = true;
+            await _db.SaveChangesAsync(ct);
+        }
+        return Ok(new { result.Success, result.IsPremium, result.Error });
+    }
+
+    [HttpPost("system-accounts/{id:long}/check")]
+    public async Task<IActionResult> CheckSystemSession(long id,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+        if (string.IsNullOrEmpty(acc.SessionString))
+            return Ok(new { valid = false, error = "Sessiya yo'q" });
+
+        var check = await pyro.CheckSessionAsync(acc.SessionString, ct);
+        return Ok(new { check.Valid, check.IsPremium, check.Error });
+    }
+
+    [HttpPost("system-accounts/{id:long}/join-groups")]
+    public async Task<IActionResult> SystemAccountJoinGroups(long id,
+        [FromBody] JoinGroupsRequest req,
+        [FromServices] ITelegramSmsAuthService pyro, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+        if (string.IsNullOrEmpty(acc.SessionString))
+            return BadRequest(new { error = "Sessiya yo'q" });
+
+        var result = await pyro.JoinGroupsAsync(acc.SessionString, req.Links, ct);
+
+        // Qo'shilgan guruhlarni DB ga saqlash
+        if (result.Results is not null)
+        {
+            foreach (var r in result.Results.Where(r => r.Ok && r.ChatId != 0))
+            {
+                var existing = await _db.Groups.FirstOrDefaultAsync(
+                    g => g.TelegramGroupId == r.ChatId, ct);
+                if (existing is null)
+                {
+                    _db.Groups.Add(new Domain.Entities.Group
+                    {
+                        TelegramGroupId = r.ChatId,
+                        Title = r.Title,
+                        IsActive = true
+                    });
+                }
+            }
+            acc.JoinedGroupsCount += result.Joined;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return Ok(new { result.Success, result.Joined, result.Total, result.Error });
+    }
+
+    [HttpDelete("system-accounts/{id:long}")]
+    public async Task<IActionResult> DeleteSystemAccount(long id, CancellationToken ct)
+    {
+        var acc = await _db.SystemAccounts.FindAsync(new object[] { id }, ct);
+        if (acc is null) return NotFound();
+        _db.SystemAccounts.Remove(acc);
+        await _db.SaveChangesAsync(ct);
+        return Ok();
+    }
+
+    // ═══ SCRAPED POSTS ══════════════════════════════════════════════════
+    [HttpGet("scraped-posts")]
+    public async Task<IActionResult> GetScrapedPosts(
+        [FromQuery] int page = 1, [FromQuery] int limit = 30,
+        [FromQuery] string? from = null, [FromQuery] string? to = null,
+        CancellationToken ct = default)
+    {
+        var q = _db.ScrapedPosts.Where(x => x.IsRelevant && x.ExpiresAt > DateTime.UtcNow);
+
+        if (!string.IsNullOrEmpty(from))
+            q = q.Where(x => x.FromCity != null && x.FromCity.ToLower().Contains(from.ToLower()));
+        if (!string.IsNullOrEmpty(to))
+            q = q.Where(x => x.ToCity != null && x.ToCity.ToLower().Contains(to.ToLower()));
+
+        var total = await q.CountAsync(ct);
+        var posts = await q.OrderByDescending(x => x.MessageDate)
+            .Skip((page - 1) * limit).Take(limit)
+            .Select(x => new
+            {
+                x.Id, x.FromCity, x.ToCity, x.CargoType, x.Weight, x.Price,
+                x.ContactPhone, x.PostType, x.RawText,
+                x.SourceGroupTitle, x.AuthorName, x.MessageDate,
+                x.Confidence, x.ViewCount, x.ExpiresAt
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { total, posts });
+    }
+
+    [HttpGet("scraped-posts/stats")]
+    public async Task<IActionResult> ScrapedPostsStats(CancellationToken ct)
+    {
+        var total = await _db.ScrapedPosts.CountAsync(ct);
+        var active = await _db.ScrapedPosts.CountAsync(x => x.IsRelevant && x.ExpiresAt > DateTime.UtcNow, ct);
+        var today = await _db.ScrapedPosts.CountAsync(x => x.CreatedAt >= DateTime.UtcNow.Date, ct);
+        var topGroups = await _db.ScrapedPosts
+            .GroupBy(x => x.SourceGroupTitle)
+            .Select(g => new { group = g.Key, count = g.Count() })
+            .OrderByDescending(x => x.count)
+            .Take(10)
+            .ToListAsync(ct);
+
+        return Ok(new { total, active, today, topGroups });
+    }
+
+    [HttpDelete("scraped-posts/{id:long}")]
+    public async Task<IActionResult> DeleteScrapedPost(long id, CancellationToken ct)
+    {
+        var p = await _db.ScrapedPosts.FindAsync(new object[] { id }, ct);
+        if (p is null) return NotFound();
+        _db.ScrapedPosts.Remove(p);
+        await _db.SaveChangesAsync(ct);
+        return Ok();
+    }
+
     // ═══ VIDEOS ══════════════════════════════════════════════════════════
     [HttpGet("videos")]
     public async Task<IActionResult> GetVideos(CancellationToken ct) =>
@@ -744,3 +1038,7 @@ public record BroadcastRequest(string Text);
 public record CreateAdminRequest(long TelegramId, string FullName, string? Username, string? Password, bool IsSuper = false, bool CanManageUsers = true, bool CanManagePayments = true, bool CanManageTariffs = false, bool CanManageGroups = false, bool CanManageCards = false, bool CanManageChannels = false, bool CanBroadcast = false, bool CanManageAdmins = false, bool CanManageSettings = false, bool CanManageVirtual = false, bool CanManagePremium = false);
 public record VideoRequest(string Title, string? TitleRu, string ServiceKey, string VideoUrl, string? Description, bool IsActive = true, int SortOrder = 0);
 public record PremiumActionRequest(string? Note);
+public record SystemAccountRequest(string PhoneNumber, string? SessionString = null, string? Note = null, string? Purpose = "all");
+public record SystemAccountVerifyRequest(string Code, string PhoneCodeHash);
+public record SystemAccount2FARequest(string Password);
+public record JoinGroupsRequest(List<string> Links);

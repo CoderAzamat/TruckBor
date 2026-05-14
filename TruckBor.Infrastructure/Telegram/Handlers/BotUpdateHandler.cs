@@ -2317,14 +2317,15 @@ public class BotUpdateHandler
             {
                 UserId      = user.Id,
                 PhoneNumber = phone,
-                IsActive    = false,   // inactive until properly verified
+                IsActive    = false,   // inactive until Pyrogram service is running
             });
             await _db.SaveChangesAsync(ct);
             await _tg.SendMessageAsync(chatId,
                 $"📱 <b>Akkaunt ro'yxatga olindi</b>\n\n" +
                 $"📞 {phone}\n\n" +
-                "⏳ Admin tomonidan faollashtirilaadi.\n" +
-                "📞 @TruckBorAdmin ga murojaat qiling.",
+                "⚠️ SMS xizmati hozir ishlamayapti.\n" +
+                "⏳ Tez orada faollashtiriladi.\n" +
+                "📞 Yordam: @TruckBorAdmin",
                 KB.MainMenu(user.Language), ct);
             return;
         }
@@ -2390,7 +2391,7 @@ public class BotUpdateHandler
             return;
         }
 
-        await FinalizeAccountAddAsync(tgId, chatId, phone, user, ct);
+        await FinalizeAccountAddAsync(tgId, chatId, phone, user, result, ct);
     }
 
     // ── Step 3: 2FA password ──────────────────────────────────────────────
@@ -2419,36 +2420,104 @@ public class BotUpdateHandler
             return;
         }
 
-        await FinalizeAccountAddAsync(tgId, chatId, phone, user, ct);
+        await FinalizeAccountAddAsync(tgId, chatId, phone, user, result, ct);
     }
 
-    // ── Save account after successful auth ────────────────────────────────
+    // ── Save account after successful auth + auto-join groups ─────────────
     private async Task FinalizeAccountAddAsync(long tgId, long chatId,
-        string phone, Domain.Entities.User user, CancellationToken ct)
+        string phone, Domain.Entities.User user, SmsVerifyResult authResult,
+        CancellationToken ct)
     {
         await _state.ClearStateAsync(tgId, ct);
 
-        if (await _db.TelegramAccounts.AnyAsync(x => x.UserId == user.Id && x.PhoneNumber == phone, ct))
+        // Check if already exists
+        var existing = await _db.TelegramAccounts.FirstOrDefaultAsync(
+            x => x.UserId == user.Id && x.PhoneNumber == phone, ct);
+        if (existing is not null)
         {
+            // Update session string if we have a new one
+            if (!string.IsNullOrEmpty(authResult.SessionString))
+            {
+                existing.SessionString = authResult.SessionString;
+                existing.IsActive = true;
+                existing.IsPremium = authResult.IsPremium;
+                existing.IsSpammed = false;
+                await _db.SaveChangesAsync(ct);
+            }
             await _tg.SendMessageAsync(chatId,
-                "⚠️ Bu raqam allaqachon ro'yxatda.", KB.MainMenu(user.Language), ct);
+                "⚠️ Bu raqam yangilandi va qayta faollashtirildi.", KB.MainMenu(user.Language), ct);
+            await ShowAccountsAsync(chatId, user, ct);
             return;
         }
 
-        _db.TelegramAccounts.Add(new Domain.Entities.TelegramAccount
+        // Create new account with session
+        var account = new Domain.Entities.TelegramAccount
         {
-            UserId      = user.Id,
-            PhoneNumber = phone,
-            IsActive    = true,
-        });
+            UserId        = user.Id,
+            PhoneNumber   = phone,
+            SessionString = authResult.SessionString,
+            IsActive      = true,
+            IsPremium     = authResult.IsPremium,
+        };
+        _db.TelegramAccounts.Add(account);
         await _db.SaveChangesAsync(ct);
 
         await _tg.SendMessageAsync(chatId,
             $"✅ <b>Akkaunt muvaffaqiyatli qo'shildi!</b>\n\n" +
-            $"📞 {phone}\n\n" +
-            "🚀 Endi shu akkaunt orqali gurublarga e'lon yuborsangiz bo'ladi.\n\n" +
-            "💡 <b>Maslahat:</b> Premium akkaunt qo'shsangiz ko'proq guruhga erisha olasiz!",
-            KB.MainMenu(user.Language), ct);
+            $"📞 {phone}\n" +
+            (authResult.IsPremium ? "⭐ Premium akkaunt\n" : "") +
+            (authResult.TelegramId > 0 ? $"🆔 Telegram ID: <code>{authResult.TelegramId}</code>\n" : "") +
+            "\n⏳ Guruhlaarga avtomatik qo'shilmoqda...",
+            ct: ct);
+
+        // ── Auto-join groups ─────────────────────────────────────────────
+        if (!string.IsNullOrEmpty(authResult.SessionString))
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var sub = await _db.Subscriptions
+                        .Include(x => x.Tariff)
+                        .FirstOrDefaultAsync(x => x.UserId == user.Id &&
+                            x.Status == SubscriptionStatus.Active &&
+                            x.EndDate > DateTime.UtcNow);
+                    if (sub?.Tariff is null) return;
+
+                    var groups = await _db.Groups
+                        .Where(x => x.IsActive && x.MinTariffLevel <= sub.Tariff.SortOrder)
+                        .OrderBy(x => x.TelegramGroupId)
+                        .Take(sub.Tariff.MaxGroups)
+                        .ToListAsync();
+
+                    if (!groups.Any()) return;
+
+                    var links = groups.Select(g =>
+                        !string.IsNullOrEmpty(g.InviteLink) ? g.InviteLink :
+                        !string.IsNullOrEmpty(g.Username) ? $"@{g.Username}" :
+                        g.TelegramGroupId.ToString()
+                    ).ToList();
+
+                    var result = await _smsAuth.JoinGroupsAsync(authResult.SessionString, links);
+
+                    await _tg.SendMessageAsync(chatId,
+                        $"🏘️ <b>Guruhlaarga qo'shildi!</b>\n\n" +
+                        $"✅ {result.Joined}/{result.Total} guruhga muvaffaqiyatli qo'shildi\n\n" +
+                        "🚀 Endi e'lon tarqatishni boshlashingiz mumkin!",
+                        KB.MainMenu(user.Language));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Auto-join groups failed for user {UserId}", user.Id);
+                }
+            }, CancellationToken.None);
+        }
+        else
+        {
+            await _tg.SendMessageAsync(chatId,
+                "💡 <b>Maslahat:</b> Premium akkaunt qo'shsangiz ko'proq guruhga erisha olasiz!",
+                KB.MainMenu(user.Language), ct);
+        }
 
         await ShowAccountsAsync(chatId, user, ct);
     }

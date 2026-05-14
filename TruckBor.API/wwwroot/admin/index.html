@@ -213,6 +213,16 @@ select.input{cursor:pointer}
       <div class="nav-item" onclick="showPage('tariffs')" data-page="tariffs">
         <span class="icon">⭐</span> Tariflar
       </div>
+      <div class="nav-item" onclick="showPage('accounts')" data-page="accounts">
+        <span class="icon">📱</span> Akkauntlar
+      </div>
+      <div class="nav-sep">Scraping</div>
+      <div class="nav-item" onclick="showPage('sysaccounts')" data-page="sysaccounts">
+        <span class="icon">🤖</span> Tizim akkaunt
+      </div>
+      <div class="nav-item" onclick="showPage('scraped')" data-page="scraped">
+        <span class="icon">📡</span> Yig'ilgan e'lonlar
+      </div>
       <div class="nav-sep">Tizim</div>
       <div class="nav-item" onclick="showPage('groups')" data-page="groups">
         <span class="icon">🌐</span> Guruhlar
@@ -222,6 +232,9 @@ select.input{cursor:pointer}
       </div>
       <div class="nav-item" onclick="showPage('channels')" data-page="channels">
         <span class="icon">📢</span> Kanallar
+      </div>
+      <div class="nav-item" onclick="showPage('videos')" data-page="videos">
+        <span class="icon">🎬</span> Video darsliklar
       </div>
       <div class="nav-item" onclick="showPage('settings')" data-page="settings">
         <span class="icon">⚙️</span> Sozlamalar
@@ -368,18 +381,22 @@ async function refreshPendingBadge(){
 //  ROUTING
 // ══════════════════════════════════════════════════════════
 const pages = {
-  dashboard: pageDashboard,
-  users:     pageUsers,
-  payments:  pagePayments,
-  tariffs:   pageTariffs,
-  groups:    pageGroups,
-  cards:     pageCards,
-  channels:  pageChannels,
-  settings:  pageSettings,
-  broadcast: pageBroadcast,
-  admins:    pageAdmins,
+  dashboard:   pageDashboard,
+  users:       pageUsers,
+  payments:    pagePayments,
+  tariffs:     pageTariffs,
+  accounts:    pageAccounts,
+  sysaccounts: pageSysAccounts,
+  scraped:     pageScraped,
+  groups:      pageGroups,
+  cards:       pageCards,
+  channels:    pageChannels,
+  videos:      pageVideos,
+  settings:    pageSettings,
+  broadcast:   pageBroadcast,
+  admins:      pageAdmins,
 };
-const titles={dashboard:'📊 Dashboard',users:'👥 Foydalanuvchilar',payments:'💰 To\'lovlar',tariffs:'⭐ Tariflar',groups:'🌐 Guruhlar',cards:'💳 Kartalar',channels:'📢 Kanallar',settings:'⚙️ Sozlamalar',broadcast:'📬 Broadcast',admins:'👑 Adminlar'};
+const titles={dashboard:'📊 Dashboard',users:'👥 Foydalanuvchilar',payments:'💰 To\'lovlar',tariffs:'⭐ Tariflar',accounts:'📱 Akkauntlar',sysaccounts:'🤖 Tizim akkaunt',scraped:'📡 Yig\'ilgan e\'lonlar',groups:'🌐 Guruhlar',cards:'💳 Kartalar',channels:'📢 Kanallar',videos:'🎬 Video darsliklar',settings:'⚙️ Sozlamalar',broadcast:'📬 Broadcast',admins:'👑 Adminlar'};
 
 function showPage(name){
   curPage=name;
@@ -1168,6 +1185,411 @@ async function saveAdmin(){
     canManageVirtual:true,canManagePremium:true,
   };
   try{await POST('/admins',body);toast('Admin yaratildi!','success');closeModalForce();loadAdmins();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  ACCOUNTS (Telegram akkauntlar)
+// ══════════════════════════════════════════════════════════
+let accPage=1, accTotal=0;
+async function pageAccounts(){ await loadAccounts(); }
+async function loadAccounts(){
+  try{
+    const d=await GET(`/accounts?page=${accPage}&limit=30`);
+    accTotal=d.total;
+    const rows=(d.accounts||[]).map(a=>`<tr>
+      <td><code>${esc(a.phoneNumber)}</code></td>
+      <td>${esc(a.userName||'—')}<br><small class="text-muted">ID: ${a.userId}</small></td>
+      <td>
+        <span class="pill ${a.isActive?'pill-green':'pill-red'}">${a.isActive?'Faol':'Nofaol'}</span>
+        ${a.isPremium?'<span class="pill pill-blue">Premium</span>':''}
+        ${a.isSpammed?'<span class="pill pill-red">Spam</span>':''}
+      </td>
+      <td>${a.postsSent||0}</td>
+      <td>${a.lastUsed?fmtDate(a.lastUsed):'—'}</td>
+      <td>${a.spammedAt?fmtDate(a.spammedAt):'—'}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="toggleAccount(${a.id},'active')">${a.isActive?'O\'chir':'Yoq'}</button>
+        ${a.isSpammed?`<button class="btn btn-success btn-sm" onclick="fixAccountSpam(${a.id})">Spam tuzat</button>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="checkAccountSession(${a.id})">Tekshir</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div class="stat-grid">
+      <div class="stat-card accent"><div class="label">Jami akkauntlar</div><div class="value">${d.total||0}</div></div>
+      <div class="stat-card success"><div class="label">Faol</div><div class="value">${d.activeCount||0}</div></div>
+      <div class="stat-card warn"><div class="label">Spamdagi</div><div class="value">${d.spammedCount||0}</div></div>
+      <div class="stat-card"><div class="label">Premium</div><div class="value">${d.premiumCount||0}</div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-head">
+        <h2>📱 Barcha Telegram akkauntlar</h2>
+        <button class="btn btn-ghost btn-sm" onclick="loadAccounts()">🔄 Yangilash</button>
+      </div>
+      <table>
+        <thead><tr><th>Telefon</th><th>Foydalanuvchi</th><th>Holat</th><th>Postlar</th><th>Oxirgi</th><th>Spam</th><th>Amal</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="7" class="empty">Akkauntlar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>
+    ${paginator(accTotal,30,accPage,'accPage','loadAccounts')}`;
+  }catch(e){toast(e.message,'error')}
+}
+async function toggleAccount(id,field){
+  try{await PUT(`/accounts/${id}/toggle`,{});toast('Yangilandi','info');loadAccounts();}
+  catch(e){toast(e.message,'error')}
+}
+async function fixAccountSpam(id){
+  try{
+    toast('Spam tuzatilmoqda...','info');
+    await POST(`/accounts/${id}/fix-spam`,{});
+    toast('Spam tuzatish buyrug\'i yuborildi','success');
+    loadAccounts();
+  }catch(e){toast(e.message,'error')}
+}
+async function checkAccountSession(id){
+  try{
+    toast('Sessiya tekshirilmoqda...','info');
+    const r=await POST(`/accounts/${id}/check-session`,{});
+    toast(r.valid?'✅ Sessiya faol'+(r.isPremium?' (Premium)':''):'❌ Sessiya eskirgan',r.valid?'success':'error');
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  VIDEO TUTORIALS
+// ══════════════════════════════════════════════════════════
+async function pageVideos(){ await loadVideos(); }
+async function loadVideos(){
+  try{
+    const vids=await GET('/videos');
+    const rows=(vids||[]).map(v=>`<tr>
+      <td><b>${esc(v.title)}</b><br><small class="text-muted">${esc(v.description||'')}</small></td>
+      <td><code style="font-size:.72rem;word-break:break-all">${esc(v.videoUrl||v.fileId||'—')}</code></td>
+      <td>${v.sortOrder||0}</td>
+      <td><span class="pill ${v.isActive?'pill-green':'pill-red'}">${v.isActive?'Faol':'Nofaol'}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editVideo(${JSON.stringify(v).replace(/'/g,'&apos;')})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteVideo(${v.id})">🗑</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="editVideo(null)">+ Video qo'shish</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-head"><h2>🎬 Video darsliklar</h2></div>
+      <table>
+        <thead><tr><th>Sarlavha</th><th>URL / FileId</th><th>Tartib</th><th>Holat</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="5" class="empty">Videolar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+function editVideo(v){
+  openModal(`<div class="modal-head"><h3>${v?'Video tahrirlash':'Yangi video'}</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div class="form-row"><label>Sarlavha</label><input class="input" id="vid-title" value="${esc(v?.title||'')}"></div>
+    <div class="form-row"><label>Tavsif</label><input class="input" id="vid-desc" value="${esc(v?.description||'')}"></div>
+    <div class="form-row"><label>Video URL yoki Telegram FileId</label><input class="input" id="vid-url" value="${esc(v?.videoUrl||v?.fileId||'')}" placeholder="https://... yoki BAACAgIAA..."></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-row"><label>Tartib</label><input class="input" id="vid-sort" type="number" value="${v?.sortOrder||0}"></div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-bottom:8px">
+          <input type="checkbox" id="vid-active" ${!v||v.isActive?'checked':''}> Faol
+        </label>
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveVideo(${v?v.id:null})">Saqlash</button>
+  </div>`);
+}
+async function saveVideo(id){
+  const body={
+    title:document.getElementById('vid-title').value,
+    description:document.getElementById('vid-desc').value,
+    videoUrl:document.getElementById('vid-url').value,
+    sortOrder:parseInt(document.getElementById('vid-sort').value)||0,
+    isActive:document.getElementById('vid-active').checked,
+  };
+  try{
+    if(id) await PUT(`/videos/${id}`,body);
+    else   await POST('/videos',body);
+    toast('Saqlandi!','success');
+    closeModalForce(); loadVideos();
+  }catch(e){toast(e.message,'error')}
+}
+async function deleteVideo(id){
+  if(!confirm('Video o\'chirish?'))return;
+  try{await DEL(`/videos/${id}`);toast('O\'chirildi','info');loadVideos();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  SYSTEM ACCOUNTS (Tizim akkaunt — scraping uchun)
+// ══════════════════════════════════════════════════════════
+let sysAuthState = {}; // {id, phoneCodeHash}
+async function pageSysAccounts(){ await loadSysAccounts(); }
+async function loadSysAccounts(){
+  try{
+    const accs=await GET('/system-accounts');
+    const rows=(accs||[]).map(a=>`<tr>
+      <td><code>${esc(a.phoneNumber)}</code></td>
+      <td>
+        <span class="pill ${a.isActive?'pill-green':'pill-red'}">${a.isActive?'Faol':'Nofaol'}</span>
+        ${a.isPremium?'<span class="pill pill-blue">Premium</span>':''}
+        ${a.isSpammed?'<span class="pill pill-red">Spam</span>':''}
+      </td>
+      <td>${a.sessionString?'<span class="pill pill-green">Bor ✅</span>':'<span class="pill pill-red">Yo\'q ❌</span>'}</td>
+      <td>${a.joinedGroupsCount||0}</td>
+      <td>${a.totalScraped||0}</td>
+      <td>${a.lastScrapeAt?fmtDate(a.lastScrapeAt):'Hech qachon'}</td>
+      <td>${esc(a.note||'—')}</td>
+      <td>
+        ${!a.sessionString?`<button class="btn btn-primary btn-sm" onclick="sysAccAuth(${a.id})">📲 Auth</button>`:`
+          <button class="btn btn-ghost btn-sm" onclick="sysAccCheck(${a.id})">Tekshir</button>
+          <button class="btn btn-success btn-sm" onclick="sysAccJoinGroups(${a.id})">Guruh +</button>
+        `}
+        <button class="btn btn-ghost btn-sm" onclick="toggleSysAcc(${a.id})">${a.isActive?'O\'chir':'Yoq'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSysAcc(${a.id})">🗑</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('content').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div>
+        <span class="text-muted">Tizim akkaunt — guruhlardan e'lon yig'ish va qo'shilish uchun</span>
+      </div>
+      <button class="btn btn-primary" onclick="addSysAccModal()">+ Akkaunt qo'shish</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-head"><h2>🤖 Tizim akkauntlar</h2></div>
+      <table>
+        <thead><tr><th>Telefon</th><th>Holat</th><th>Sessiya</th><th>Guruh</th><th>Scrape</th><th>Oxirgi scrape</th><th>Izoh</th><th>Amal</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="8" class="empty">Tizim akkaunt yo\'q. Yangi qo\'shing!</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }catch(e){toast(e.message,'error')}
+}
+
+function addSysAccModal(){
+  openModal(`<div class="modal-head"><h3>🤖 Tizim akkaunt qo'shish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <p style="color:var(--text2);font-size:.82rem;margin-bottom:12px">Bu akkaunt guruhlardan e'lon scrape qilish uchun ishlatiladi. Telefon raqam kiriting, keyin SMS kod bilan tasdiqlang.</p>
+    <div class="form-row"><label>Telefon raqam</label><input class="input" id="sys-phone" placeholder="+998901234567"></div>
+    <div class="form-row"><label>Izoh (ixtiyoriy)</label><input class="input" id="sys-note" placeholder="Scraping uchun asosiy akkaunt"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" onclick="saveSysAcc()">Qo'shish</button>
+  </div>`);
+}
+
+async function saveSysAcc(){
+  const phone=document.getElementById('sys-phone').value.trim();
+  const note=document.getElementById('sys-note').value;
+  if(!phone){toast('Telefon kiriting','error');return;}
+  try{
+    await POST('/system-accounts',{phoneNumber:phone,note});
+    toast('Akkaunt qo\'shildi! Endi "Auth" tugmasini bosing.','success');
+    closeModalForce(); loadSysAccounts();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function sysAccAuth(id){
+  try{
+    toast('SMS kod yuborilmoqda...','info');
+    const r=await POST(`/system-accounts/${id}/auth`,{});
+    if(!r.success){toast('Xato: '+r.error,'error');return;}
+    sysAuthState={id,phoneCodeHash:r.phoneCodeHash};
+    openModal(`<div class="modal-head"><h3>📲 SMS kodni kiriting</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <p style="color:var(--text2);font-size:.82rem;margin-bottom:12px">Telegram dan kelgan SMS kodni kiriting</p>
+      <div class="form-row"><label>SMS Kod</label><input class="input" id="sys-code" placeholder="12345" autocomplete="one-time-code"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+      <button class="btn btn-primary" onclick="sysAccVerify()">Tasdiqlash</button>
+    </div>`);
+  }catch(e){toast(e.message,'error')}
+}
+
+async function sysAccVerify(){
+  const code=document.getElementById('sys-code').value.trim();
+  if(!code){toast('Kod kiriting','error');return;}
+  try{
+    const r=await POST(`/system-accounts/${sysAuthState.id}/verify`,{code,phoneCodeHash:sysAuthState.phoneCodeHash});
+    if(r.needs2FA){
+      closeModalForce();
+      openModal(`<div class="modal-head"><h3>🔐 2FA Parol</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row"><label>Two-Factor parol</label><input class="input" type="password" id="sys-2fa" placeholder="Parolingiz"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+        <button class="btn btn-primary" onclick="sysAccVerify2FA()">Tasdiqlash</button>
+      </div>`);
+      return;
+    }
+    if(r.success){
+      toast('✅ Akkaunt muvaffaqiyatli ulandi!'+(r.isPremium?' (Premium)':''),'success');
+      closeModalForce(); loadSysAccounts();
+    } else {
+      toast('Xato: '+r.error,'error');
+    }
+  }catch(e){toast(e.message,'error')}
+}
+
+async function sysAccVerify2FA(){
+  const pw=document.getElementById('sys-2fa').value;
+  if(!pw){toast('Parol kiriting','error');return;}
+  try{
+    const r=await POST(`/system-accounts/${sysAuthState.id}/verify-2fa`,{password:pw});
+    if(r.success){
+      toast('✅ Akkaunt muvaffaqiyatli ulandi!','success');
+      closeModalForce(); loadSysAccounts();
+    } else toast('Xato: '+r.error,'error');
+  }catch(e){toast(e.message,'error')}
+}
+
+async function sysAccCheck(id){
+  try{
+    toast('Sessiya tekshirilmoqda...','info');
+    const r=await POST(`/system-accounts/${id}/check`,{});
+    toast(r.valid?'✅ Sessiya faol'+(r.isPremium?' (Premium)':''):'❌ Sessiya eskirgan', r.valid?'success':'error');
+  }catch(e){toast(e.message,'error')}
+}
+
+async function sysAccJoinGroups(id){
+  openModal(`<div class="modal-head"><h3>🌐 Guruhlarga qo'shilish</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <p style="color:var(--text2);font-size:.82rem;margin-bottom:12px">Har bir qatorda bitta guruh linki kiriting. Maxsus/ochiq guruhlar qo'llab-quvvatlanadi.</p>
+    <div class="form-row"><label>Guruh linklari</label>
+      <textarea class="input" id="sys-links" rows="8" placeholder="https://t.me/logistika_uzb\nhttps://t.me/yuk_tashish\nhttps://t.me/+ABC123..."></textarea>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" onclick="closeModalForce()">Bekor</button>
+    <button class="btn btn-primary" id="sys-join-btn" onclick="doSysJoin(${id})">Qo'shilish</button>
+  </div>`);
+}
+
+async function doSysJoin(id){
+  const raw=document.getElementById('sys-links').value.trim();
+  if(!raw){toast('Link kiriting','error');return;}
+  const links=raw.split('\n').map(l=>l.trim()).filter(l=>l.length>3);
+  if(!links.length){toast('Hech bo\'lmasa bitta link kiriting','error');return;}
+  const btn=document.getElementById('sys-join-btn');
+  btn.disabled=true;btn.textContent='⏳ Qo\'shilmoqda...';
+  try{
+    const r=await POST(`/system-accounts/${id}/join-groups`,{links});
+    toast(`✅ ${r.joined}/${r.total} guruhga qo'shildi!`,'success');
+    closeModalForce(); loadSysAccounts();
+  }catch(e){toast(e.message,'error')}
+  btn.disabled=false;btn.textContent='Qo\'shilish';
+}
+
+async function toggleSysAcc(id){
+  try{await PUT(`/system-accounts/${id}/toggle`,{});toast('Yangilandi','info');loadSysAccounts();}
+  catch(e){toast(e.message,'error')}
+}
+
+async function deleteSysAcc(id){
+  if(!confirm('Tizim akkauntni o\'chirish?'))return;
+  try{await DEL(`/system-accounts/${id}`);toast('O\'chirildi','info');loadSysAccounts();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════════════════════════
+//  SCRAPED POSTS (Yig'ilgan e'lonlar)
+// ══════════════════════════════════════════════════════════
+let scpPage=1, scpFrom='', scpTo='', scpTotal=0;
+async function pageScraped(){
+  document.getElementById('content').innerHTML=`
+  <div id="scr-stats" style="margin-bottom:16px"></div>
+  <div class="search-bar" style="margin-bottom:16px;flex-wrap:wrap">
+    <input class="input" id="scr-from" placeholder="🏙 Qayerdan..." value="${scpFrom}" style="max-width:180px" oninput="scpFrom=this.value">
+    <input class="input" id="scr-to" placeholder="🏙 Qayerga..." value="${scpTo}" style="max-width:180px" oninput="scpTo=this.value">
+    <button class="btn btn-primary" onclick="scpPage=1;loadScraped()">Qidirish</button>
+    <button class="btn btn-ghost" onclick="scpFrom='';scpTo='';scpPage=1;loadScraped()">Tozalash</button>
+  </div>
+  <div id="scraped-table"><div class="empty"><div class="spinner"></div></div></div>`;
+  await loadScrapedStats();
+  await loadScraped();
+}
+
+async function loadScrapedStats(){
+  try{
+    const s=await GET('/scraped-posts/stats');
+    document.getElementById('scr-stats').innerHTML=`
+    <div class="stat-grid">
+      <div class="stat-card accent"><div class="label">Jami yig'ilgan</div><div class="value">${(s.total||0).toLocaleString()}</div></div>
+      <div class="stat-card success"><div class="label">Aktiv e'lonlar</div><div class="value">${s.active||0}</div></div>
+      <div class="stat-card warn"><div class="label">Bugun yig'ildi</div><div class="value">${s.today||0}</div></div>
+    </div>
+    ${s.topGroups?.length?`
+    <div class="table-wrap" style="margin-top:12px">
+      <div class="table-head"><h2>🏆 Top guruhlar (eng ko'p e'lon)</h2></div>
+      <table>
+        <thead><tr><th>Guruh</th><th>E'lonlar</th></tr></thead>
+        <tbody>${s.topGroups.map(g=>`<tr><td>${esc(g.group||'Nomsiz')}</td><td><b>${g.count}</b></td></tr>`).join('')}</tbody>
+      </table>
+    </div>`:''}`;
+  }catch{}
+}
+
+async function loadScraped(){
+  try{
+    const f=scpFrom?`&from=${encodeURIComponent(scpFrom)}`:'';
+    const t=scpTo?`&to=${encodeURIComponent(scpTo)}`:'';
+    const d=await GET(`/scraped-posts?page=${scpPage}&limit=20${f}${t}`);
+    scpTotal=d.total;
+    const postTypes={0:'📦 Yuk',1:'🚛 Mashina',2:'🔄 Dogruz'};
+    const rows=(d.posts||[]).map(p=>`<tr>
+      <td>${postTypes[p.postType]||'—'}</td>
+      <td><b>${esc(p.fromCity||'?')} → ${esc(p.toCity||'?')}</b></td>
+      <td>${esc(p.cargoType||'—')}</td>
+      <td>${esc(p.price||'—')}</td>
+      <td><code style="font-size:.72rem">${esc(p.contactPhone||'—')}</code></td>
+      <td><small class="text-muted">${esc(p.sourceGroupTitle||'—')}</small></td>
+      <td><span class="pill ${p.confidence>=70?'pill-green':p.confidence>=40?'pill-yellow':'pill-red'}">${p.confidence}%</span></td>
+      <td>${fmtDate(p.messageDate)}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="viewScrapedPost(${JSON.stringify(p).replace(/'/g,'&apos;')})">👁</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteScrapedPost(${p.id})">🗑</button>
+      </td>
+    </tr>`).join('');
+    document.getElementById('scraped-table').innerHTML=`
+    <div class="table-wrap">
+      <div class="table-head"><h2>Jami: ${d.total.toLocaleString()}</h2></div>
+      <table>
+        <thead><tr><th>Tur</th><th>Yo'nalish</th><th>Yuk</th><th>Narx</th><th>Telefon</th><th>Guruh</th><th>AI</th><th>Vaqt</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="9" class="empty">E\'lonlar yo\'q</td></tr>'}</tbody>
+      </table>
+    </div>
+    ${paginator(scpTotal,20,scpPage,'scpPage','loadScraped')}`;
+  }catch(e){toast(e.message,'error')}
+}
+
+function viewScrapedPost(p){
+  openModal(`<div class="modal-head"><h3>📡 E'lon tafsiloti</h3><button class="btn-icon" onclick="closeModalForce()">✕</button></div>
+  <div class="modal-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div><div class="text-xs text-muted">Yo'nalish</div><div style="font-size:1.1rem;font-weight:700">${esc(p.fromCity||'?')} → ${esc(p.toCity||'?')}</div></div>
+      <div><div class="text-xs text-muted">Narx</div><div style="color:var(--success);font-weight:700">${esc(p.price||'Ko\'rsatilmagan')}</div></div>
+      <div><div class="text-xs text-muted">Yuk turi</div><div>${esc(p.cargoType||'—')}</div></div>
+      <div><div class="text-xs text-muted">Og'irlik</div><div>${esc(p.weight||'—')}</div></div>
+      <div><div class="text-xs text-muted">Telefon</div><div><code>${esc(p.contactPhone||'—')}</code></div></div>
+      <div><div class="text-xs text-muted">AI ishonch</div><div>${p.confidence}%</div></div>
+      <div><div class="text-xs text-muted">Guruh</div><div>${esc(p.sourceGroupTitle||'—')}</div></div>
+      <div><div class="text-xs text-muted">Muallif</div><div>${esc(p.authorName||'—')}</div></div>
+    </div>
+    <div class="text-xs text-muted" style="margin-bottom:4px">Asl xabar matni:</div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:.82rem;white-space:pre-wrap;max-height:300px;overflow-y:auto">${esc(p.rawText||'—')}</div>
+  </div>`);
+}
+
+async function deleteScrapedPost(id){
+  try{await DEL(`/scraped-posts/${id}`);toast('O\'chirildi','info');loadScraped();}
   catch(e){toast(e.message,'error')}
 }
 
