@@ -387,7 +387,7 @@ public static class Keyboards
             {
                 InlineKeyboardButton.WithWebApp(
                     L("📱 Mini App ochish", "📱 Mini App очиш", "📱 Открыть Mini App", "📱 Open Mini App", "📱 Mini App'ı Aç"),
-                    new WebAppInfo { Url = "https://t.me/TruckBorBot/app" })
+                    new WebAppInfo { Url = "https://app.truckbor.uz" })
             },
             new[]
             {

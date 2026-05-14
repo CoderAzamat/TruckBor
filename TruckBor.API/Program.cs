@@ -80,10 +80,8 @@ builder.Services.AddRateLimiter(opt =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// ── Health Checks ─────────────────────────────────────────
-builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Default")!)
-    .AddRedis(builder.Configuration.GetConnectionString("Redis")!);
+// ── Health Checks (simple built-in — v9 packages don't support .NET 10) ───────
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
@@ -123,7 +121,7 @@ app.UseStaticFiles();
 
 app.MapControllers();
 
-app.MapHealthChecks("/health");
+app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }));
 
 // ── Webhook Setup ─────────────────────────────────────────
 using (var scope = app.Services.CreateScope())

@@ -29,6 +29,12 @@ git fetch --all
 git reset --hard origin/main 2>/dev/null || git reset --hard origin/master
 echo "    ✅ Kod yangilandi: $(git log --oneline -1)"
 
+# Deploy scriptni ham yangilaymiz (keyingi safar uchun)
+if [ -f "$REPO_DIR/server-setup/deploy-truckbor.sh" ]; then
+    cp "$REPO_DIR/server-setup/deploy-truckbor.sh" /usr/local/bin/deploy-truckbor
+    chmod +x /usr/local/bin/deploy-truckbor
+fi
+
 # ── 2. Xizmatlarni to'xtatish ────────────────────────
 echo ""
 echo ">>> [2/9] Xizmatlar to'xtatilmoqda..."
