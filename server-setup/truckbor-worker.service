@@ -1,0 +1,17 @@
+[Unit]
+Description=TruckBor Worker
+After=network.target postgresql.service redis.service truckbor.service
+
+[Service]
+WorkingDirectory=/var/www/truckbor/worker
+ExecStart=/usr/bin/dotnet /var/www/truckbor/worker/TruckBor.Worker.dll
+Restart=always
+RestartSec=10
+KillSignal=SIGINT
+SyslogIdentifier=truckbor-worker
+User=www-data
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+
+[Install]
+WantedBy=multi-user.target

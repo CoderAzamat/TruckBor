@@ -1,0 +1,18 @@
+[Unit]
+Description=TruckBor API
+After=network.target postgresql.service redis.service
+
+[Service]
+WorkingDirectory=/var/www/truckbor/api
+ExecStart=/usr/bin/dotnet /var/www/truckbor/api/TruckBor.API.dll
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+SyslogIdentifier=truckbor
+User=www-data
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
+
+[Install]
+WantedBy=multi-user.target
