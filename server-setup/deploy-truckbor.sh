@@ -239,11 +239,20 @@ check_service "redis-server"    "Redis                     ║"
 
 echo "╠══════════════════════════════════════════════╣"
 
-sleep 2
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/health 2>/dev/null || echo "000")
+# Health check — API ishga tushishini kutish (max 30 sek)
+echo -n "║  ⏳ Health Check kutilmoqda..."
+HTTP="000"
+for i in $(seq 1 15); do
+    sleep 2
+    HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/health 2>/dev/null || echo "000")
+    if [ "$HTTP" = "200" ]; then break; fi
+done
+
 if [ "$HTTP" = "200" ]; then
+    echo ""
     echo "║  ✅ Health Check — OK (200)              ║"
 else
+    echo ""
     echo "║  ❌ Health Check — XATO ($HTTP)              ║"
     echo "║  → journalctl -u truckbor -n 30           ║"
 fi
