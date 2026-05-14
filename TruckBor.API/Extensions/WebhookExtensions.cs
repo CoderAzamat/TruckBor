@@ -1,4 +1,4 @@
-﻿using Telegram.Bot;
+using Telegram.Bot;
 
 namespace TruckBor.API.Extensions;
 
@@ -9,26 +9,34 @@ public static class WebhookExtensions
         IConfiguration config,
         ILogger logger)
     {
-        if (config.GetValue<bool>("Bot:UsePolling"))
+        var webhookUrl = config["Bot:WebhookUrl"];
+
+        // If no webhook URL configured → skip (pure polling mode for local dev)
+        if (string.IsNullOrWhiteSpace(webhookUrl))
         {
-            logger.LogInformation("Polling mode — webhook skipped");
+            logger.LogInformation("Bot:WebhookUrl is empty — webhook skipped (local dev mode)");
             return;
         }
 
         try
         {
             var bot = services.GetRequiredService<ITelegramBotClient>();
-            var webhookUrl = config["Bot:WebhookUrl"]!;
 
+            // Delete any old webhook first
+            await bot.DeleteWebhook(dropPendingUpdates: true);
+
+            // Set new webhook
             await bot.SetWebhook(webhookUrl,
                 allowedUpdates: [],
                 dropPendingUpdates: true);
 
-            logger.LogInformation("Webhook set: {Url}", webhookUrl);
+            var info = await bot.GetWebhookInfo();
+            logger.LogInformation("✅ Webhook set: {Url} | Pending: {Pending}",
+                webhookUrl, info.PendingUpdateCount);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Webhook setup failed — bot will not receive updates via webhook");
+            logger.LogError(ex, "❌ Webhook setup failed — bot will NOT receive updates");
         }
     }
 }

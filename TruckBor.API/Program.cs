@@ -38,6 +38,8 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
     {
+        // Don't remap "role" → ClaimTypes.Role — keep claim names as-is from JWT
+        opt.MapInboundClaims = false;
         opt.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer           = true,
@@ -47,12 +49,14 @@ builder.Services
             ValidIssuer              = builder.Configuration["Jwt:Issuer"],
             ValidAudience            = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey         = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!))
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!)),
+            NameClaimType = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+            RoleClaimType = "role",
         };
     });
 builder.Services.AddAuthorization(opt =>
 {
-    opt.AddPolicy("AdminOnly", p => p.RequireClaim("role", "admin"));
+    opt.AddPolicy("AdminOnly", p => p.RequireRole("admin"));
 });
 
 // ── CORS ──────────────────────────────────────────────────
