@@ -85,6 +85,21 @@ rsync -a --delete \
     --exclude 'logs/' \
     /tmp/truckbor-build/worker/ "$WORKER_DIR/"
 
+# appsettings.Production.json da noto'g'ri port (5002 yoki boshqa) bo'lsa o'chiramiz
+# Systemd ASPNETCORE_URLS=http://0.0.0.0:5000 bilan ishlatadi
+if [ -f "$API_DIR/appsettings.Production.json" ]; then
+    python3 -c "
+import json, sys
+f = open('$API_DIR/appsettings.Production.json', 'r')
+data = json.load(f); f.close()
+# Urls kalitini o'chirish — systemd env var orqali boshqariladi
+data.pop('Urls', None)
+data.pop('urls', None)
+open('$API_DIR/appsettings.Production.json', 'w').write(json.dumps(data, indent=2, ensure_ascii=False))
+print('    appsettings.Production.json tozalandi')
+" 2>/dev/null || true
+fi
+
 # pyro-auth fayllar
 cp "$REPO_DIR/pyro-auth/main.py"          "$PYRO_DIR/"
 cp "$REPO_DIR/pyro-auth/requirements.txt" "$PYRO_DIR/"

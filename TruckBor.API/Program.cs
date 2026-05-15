@@ -80,8 +80,7 @@ builder.Services.AddRateLimiter(opt =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// ── Health Checks (simple built-in — v9 packages don't support .NET 10) ───────
-builder.Services.AddHealthChecks();
+// (no external health check packages needed)
 
 var app = builder.Build();
 
@@ -99,6 +98,19 @@ using (var scope = app.Services.CreateScope())
         Log.Error(ex, "Seeding failed");
     }
 }
+
+// ── /health — eng birinchi middleware, hech narsa bloklolmaydi ───────────────
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/health"))
+    {
+        ctx.Response.ContentType = "application/json";
+        ctx.Response.StatusCode  = 200;
+        await ctx.Response.WriteAsJsonAsync(new { status = "ok", time = DateTime.UtcNow });
+        return;
+    }
+    await next(ctx);
+});
 
 // ── Middleware ────────────────────────────────────────────
 app.UseMiddleware<ExceptionMiddleware>();
@@ -121,7 +133,7 @@ app.UseStaticFiles();
 
 app.MapControllers();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }));
+// (health check handled by middleware above)
 
 // ── Webhook Setup ─────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
